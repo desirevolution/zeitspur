@@ -28,7 +28,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. TypeScript and production build: `npm run build`; tests: `npm run test:logic && npm run test:share && npm run test:pwa && npm run test:github` (run after a build).
+Open `http://localhost:5173`. For a production build run `npm run build`. To run the same validations as GitHub Actions use `npm run test:ci`. It first runs `build:standalone` to create the unbundled `dist/assets/*.js` modules required by the smoke tests, then runs the logic/share/PWA/repository tests, and finally runs the production Vite build. Running `npm run test:logic` directly **after** `npm run build` does not work because Vite bundles the modules instead of retaining those test paths. No other GitHub workflow needs to run beforehand.
 
 Or with a Docker development container and live reload:
 
