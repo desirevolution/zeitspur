@@ -1,6 +1,7 @@
-import { clearHistory, deleteDateRange, deleteDay, deleteWeek, deleteEntry, deleteCategorySuggestion, pauseTimer, restoreBackup, resumeTimer, saveEditedSession, setTheme, setLanguage, setCategoryListExpanded, snapshot, startTimer, stopTimer, undoDeleteEntry } from './db.js';
+import { clearHistory, deleteDateRange, deleteDay, deleteWeek, deleteEntry, deleteCategorySuggestion, pauseTimer, restoreBackup, resumeTimer, saveEditedSession, setTheme, setLanguage, setCategoryListExpanded, snapshot, startTimer, stopTimer, returnToStoppedTimer, undoDeleteEntry } from './db.js';
 import { dateKey, formatClock, formatDayLabel, formatDuration, formatTime, groupSessionsByDay, localWeekBounds, presetRange, workingMilliseconds } from './time.js';
 import type { Session, Snapshot, Theme, LanguagePreference } from './types.js';
+import type { StoppedFrom } from './timer-recovery.js';
 import { getPauses } from './records.js';
 import { localPauseDate, localPauseTime, parsePausePoint, pauseDayOptions, suggestPause, validatePausePeriods } from './pause-editor.js';
 import { validateEntryOrder, timeOneMinuteBefore, timeOneMinuteAfter } from './time-editor-validation.js';
@@ -298,7 +299,7 @@ function render(): void {
       <div class="header-actions"><button class="icon-button settings-button" type="button" data-action="settings" aria-label="Einstellungen öffnen">${icon('settings', 21)}</button></div>
     </header>
     <main>${renderTimer(session)}${renderPending()}${renderHistory()}</main>
-    <footer class="footer"><span>Version 0.30</span></footer>
+    <footer class="footer"><span>Version 0.31</span></footer>
   </div>
   <div class="mini-timer" id="mini-timer" ${session && !heroVisible ? '' : 'hidden'}><div class="mini-inner"><div class="mini-left"><span class="mini-status"></span><strong data-mini-clock>${session ? formatClock(workingMilliseconds(session)) : '00:00:00'}</strong><span>${session?.status === 'paused' ? 'Pausiert' : 'Timer läuft'}</span></div><button type="button" class="mini-jump" data-action="jump-to-timer">Zum Timer ${icon('arrow', 15)}</button></div></div>`;
   visibilityObserver?.disconnect();
@@ -381,12 +382,16 @@ function monitorEditorViewport(): void {
   applyViewport();
 }
 
-function editSession(id: string): void {
+function editSession(id: string, stoppedFrom?: StoppedFrom): void {
   // A new editor starts in normal mode even if a previous editor was closed during typing.
   editorDialog.classList.remove('category-picking');
   const session = state.sessions.find((s) => s.id === id);
   if (!session || (session.status !== 'pending' && session.status !== 'completed')) return toast('Eintrag ist nicht mehr verfügbar.');
   const editingSession = session;
+  // Only an editor opened directly by Stop can undo that Stop.
+  const canReturnToTimer = session.status === 'pending' && stoppedFrom !== undefined;
+  let documentationSaved = false;
+  let documentationDeferred = false;
   const list = categorySuggestions();
   const pauseMarkup = (start: number, end: number, originalStart = -1, originalEnd = -1): string => `<div class="pause-row" data-pause-row data-original-start="${originalStart}" data-original-end="${originalEnd}">
     <div class="pause-row-head"><span class="pause-row-title">${tr('Pause')}</span><button type="button" class="icon-button" data-action="remove-pause" aria-label="${tr('Pause entfernen')}" title="${tr('Pause entfernen')}">${icon('trash', 17)}</button></div>
@@ -399,7 +404,7 @@ function editSession(id: string): void {
     <input type="hidden" class="pause-end-date" value="${localPauseDate(end)}">
   </div>`;
   editorDialog.innerHTML = `<form id="editor-form" class="modal-content" novalidate>
-    <div class="modal-top"><div><h2 id="editor-title">${session.status === 'completed' ? 'Eintrag bearbeiten' : 'Zeit dokumentieren'}</h2></div><button type="button" class="icon-button" data-action="close-editor" aria-label="Schließen">${icon('close', 20)}</button></div>
+    <div class="modal-top"><div><h2 id="editor-title">${session.status === 'completed' ? 'Eintrag bearbeiten' : 'Zeit dokumentieren'}</h2></div><button type="button" class="icon-button" data-action="close-editor" aria-label="${canReturnToTimer ? tr('Zurück zum Timer') : tr('Schließen')}">${icon('close', 20)}</button></div>
     <div class="modal-body" id="editor-scroll-region">
     <div class="modal-summary"><span>${icon('clock', 18)} ${formatDuration(workingMilliseconds(session))}</span><span>${escapeHtml(new Intl.DateTimeFormat(intlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }).format(session.startedAt))}</span></div>
     <div class="field-grid">
@@ -430,10 +435,45 @@ function editSession(id: string): void {
     <div id="pause-list">${getPauses(session).map(p => pauseMarkup(p.start, p.end, p.start, p.end)).join('')}</div>
     <button type="button" class="button outline small" data-action="add-pause">+ Pause hinzufügen</button></details>
     </div>
-    <div class="editor-footer"><p class="editor-requirements" id="editor-requirements" role="status" aria-live="polite"></p><div class="modal-actions"><button type="button" class="button secondary" data-action="close-editor">Später</button><button type="submit" class="button primary">${icon('check', 18)} Abschließen</button></div></div>
+    <div class="editor-footer"><p class="editor-requirements" id="editor-requirements" role="status" aria-live="polite"></p>
+      ${canReturnToTimer ? '<button type="button" class="editor-defer" data-action="defer-editor">Später dokumentieren</button>' : ''}
+      <div class="modal-actions"><button type="button" class="button secondary" data-action="close-editor">${canReturnToTimer ? 'Zurück zum Timer' : 'Später'}</button><button type="submit" class="button primary">${icon('check', 18)} Abschließen</button></div></div>
   </form>`;
   translateUi(editorDialog);
   const form = editorDialog.querySelector<HTMLFormElement>('#editor-form')!;
+  // X, Escape and "Zurück zum Timer" share the same non-destructive exit.
+  // "Später dokumentieren" deliberately keeps the stopped entry pending.
+  editorDialog.addEventListener('close', () => {
+    if (!canReturnToTimer || documentationSaved || documentationDeferred) return;
+    void (async () => {
+      busy = true;
+      try {
+        await returnToStoppedTimer(session.id, session.revision, stoppedFrom!);
+        notifyChange();
+        await refresh();
+        const hero = document.querySelector<HTMLElement>('#timer-hero');
+        hero?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+        hero?.querySelector<HTMLButtonElement>('button[data-action="pause"], button[data-action="resume"]')?.focus({ preventScroll: true });
+      } catch (error) {
+        showError(error);
+        await refresh(); // Stopped entry remains available for documentation.
+      } finally { busy = false; }
+    })();
+  }, { once: true });
+  const preventCancelDuringSave = (event: Event): void => {
+    // Escape must not dismiss a dialog while IndexedDB is saving it.
+    if (busy) event.preventDefault();
+  };
+  editorDialog.addEventListener('cancel', preventCancelDuringSave);
+  editorDialog.addEventListener('close', () => {
+    editorDialog.removeEventListener('cancel', preventCancelDuringSave);
+  }, { once: true });
+  form.querySelector<HTMLButtonElement>('button[data-action="defer-editor"]')?.addEventListener('click', () => {
+    if (busy) return;
+    documentationDeferred = true;
+    editorDialog.close();
+    toast('Eintrag kann später ergänzt werden.');
+  });
   const categoryField = form.querySelector<HTMLInputElement>('#category')!;
   const categorySearch = form.querySelector<HTMLInputElement>('#category-search')!;
   const descriptionField = form.querySelector<HTMLTextAreaElement>('#description')!;
@@ -773,6 +813,7 @@ function editSession(id: string): void {
         description: form.querySelector<HTMLTextAreaElement>('#description')!.value,
       });
       notifyChange();
+      documentationSaved = true;
       editorDialog.close();
       await refresh();
       toast(session.status === 'pending' ? 'Zeiterfassung abgeschlossen.' : 'Eintrag gespeichert.');
@@ -1006,13 +1047,18 @@ async function timerAction(action: string): Promise<void> {
   }
   try {
     let stoppedId: string | undefined;
+    let previousStatus: StoppedFrom | undefined;
     if (action === 'start') await startTimer();
     else if (action === 'pause') await pauseTimer();
     else if (action === 'resume') await resumeTimer();
-    else if (action === 'stop') stoppedId = await stopTimer();
+    else if (action === 'stop') {
+      const stopped = await stopTimer();
+      stoppedId = stopped.id;
+      previousStatus = stopped.previousStatus;
+    }
     notifyChange();
     await refresh();
-    if (stoppedId) editSession(stoppedId);
+    if (stoppedId) editSession(stoppedId, previousStatus);
   } catch (error) {
     showError(error);
     await refresh();
@@ -1102,7 +1148,7 @@ app.addEventListener('click', (event) => {
 });
 editorDialog.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-action="close-editor"]');
-  if (button) editorDialog.close();
+  if (button && !busy) editorDialog.close();
 });
 settingsDialog.addEventListener('click', (event) => {
   const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-action]');

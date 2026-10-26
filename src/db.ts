@@ -1,5 +1,7 @@
 import type { CategorySuggestion, Session, Snapshot, Theme, LanguagePreference } from './types.js';
 import { categoryKey, isCategoryList, removeCategory, useCategory } from './categories.js';
+import { restoreStoppedSession } from './timer-recovery.js';
+import type { StoppedFrom } from './timer-recovery.js';
 
 const DATABASE = 'zeitspur-v1';
 const STORE_SESSIONS = 'sessions';
@@ -113,13 +115,15 @@ export async function startTimer(): Promise<string> {
   });
 }
 
-async function modifyActive(operation: 'pause' | 'resume' | 'stop'): Promise<string> {
+async function modifyActive(operation: 'pause' | 'resume' | 'stop'): Promise<{ id: string; previousStatus: StoppedFrom }> {
   return transact('readwrite', async (sessions, settings) => {
     const active = await request<StoredSetting | undefined>(settings.get('activeSessionId'));
     if (typeof active?.value !== 'string') throw new Error('Es ist kein Timer aktiv.');
     const session = await request<Session | undefined>(sessions.get(active.value));
     if (!session) throw new Error('Aktiver Timer konnte nicht gefunden werden.');
     const now = Date.now();
+    if (session.status !== 'running' && session.status !== 'paused') throw new Error('Dieser Timer ist nicht aktiv.');
+    const previousStatus: StoppedFrom = session.status;
     if (operation === 'pause') {
       if (session.status !== 'running') throw new Error('Dieser Timer läuft nicht.');
       const segment = session.segments.at(-1);
@@ -144,13 +148,30 @@ async function modifyActive(operation: 'pause' | 'resume' | 'stop'): Promise<str
     session.updatedAt = now;
     session.revision += 1;
     await request(sessions.put(session));
-    return session.id;
+    return { id: session.id, previousStatus };
   });
 }
 
-export const pauseTimer = () => modifyActive('pause');
-export const resumeTimer = () => modifyActive('resume');
+export const pauseTimer = async () => (await modifyActive('pause')).id;
+export const resumeTimer = async () => (await modifyActive('resume')).id;
 export const stopTimer = () => modifyActive('stop');
+
+/** Restore exactly the timer that was stopped before opening its documentation.
+ * The state and revision checks prevent overwriting changes from another tab.
+ */
+export async function returnToStoppedTimer(id: string, expectedRevision: number, previousStatus: StoppedFrom): Promise<void> {
+  await transact('readwrite', async (sessions, settings) => {
+    const active = await request<StoredSetting | undefined>(settings.get('activeSessionId'));
+    if (active?.value) throw new Error('Ein anderer Timer ist bereits aktiv. Der offene Eintrag bleibt erhalten.');
+    const session = await request<Session | undefined>(sessions.get(id));
+    if (!session || session.revision !== expectedRevision) {
+      throw new Error('Dieser Eintrag wurde zwischenzeitlich geändert. Der Timer konnte nicht wiederhergestellt werden.');
+    }
+    const restored = restoreStoppedSession(session, previousStatus);
+    await request(sessions.put(restored));
+    await request(settings.put({ key: 'activeSessionId', value: id }));
+  });
+}
 
 export async function saveDocumentation(id: string, rawCategory: string, rawDescription: string): Promise<void> {
   await transact('readwrite', async (sessions, settings) => {

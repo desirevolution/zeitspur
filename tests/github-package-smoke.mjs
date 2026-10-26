@@ -11,5 +11,5 @@ assert.equal(suggestPause(start, start+10*60_000, [{start,end:start+10*60_000}])
 assert.ok(suggestPause(start, start+20*60_000, [{start,end:start+10*60_000}]), 'Available time enables add break');
 assert.ok(html.includes('manifest.webmanifest'));
 const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
-assert.equal(pkg.version, '0.30.0');
+assert.equal(pkg.version, '0.31.0');
 console.log('PASS: break disabled when no remaining duration; GitHub link, PWA package');

@@ -211,6 +211,10 @@ dialog::backdrop { background: rgb(9 17 12 / 68%); backdrop-filter: blur(3px); }
 .field-error { color: var(--danger); font-size: 12px; font-weight: 500; }
 .field.field-invalid :is(input, textarea) { border-color: var(--danger); }
 .field.field-invalid :is(input, textarea):focus { outline-color: var(--danger); }
+/* Optional explicit deferral for stopped sessions; distinct from undoing Stop. */
+.editor-defer { justify-self: start; border: 0; padding: 4px 0; background: none; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.editor-defer:hover { color: var(--text); }
+.editor-defer:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 .modal-actions, .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 /* Desktop editor: the dialog itself never scrolls. Only the middle section does,
