@@ -1,0 +1,27 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches-ignore:
+      - main
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install build dependencies
+        run: npm install --no-audit --no-fund
+      - name: Typecheck, build, and smoke tests
+        run: |
+          npm run build
+          npm run test:logic
+          npm run test:share
+          npm run test:pwa
+          npm run test:github
