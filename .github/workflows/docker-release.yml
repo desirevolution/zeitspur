@@ -21,13 +21,8 @@ jobs:
         run: node -e 'if ("v" + require("./package.json").version !== process.env.RELEASE_TAG) process.exit(1)'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
-      - name: Build and test
-        run: |
-          npm run build
-          npm run test:logic
-          npm run test:share
-          npm run test:pwa
-          npm run test:github
+      - name: Build test modules, run smoke tests, and verify production build
+        run: npm run test:ci
 
   publish-image:
     needs: test

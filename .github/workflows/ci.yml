@@ -18,10 +18,8 @@ jobs:
           node-version: '22'
       - name: Install build dependencies
         run: npm install --no-audit --no-fund
-      - name: Typecheck, build, and smoke tests
-        run: |
-          npm run build
-          npm run test:logic
-          npm run test:share
-          npm run test:pwa
-          npm run test:github
+      # Smoke tests import predictable dist/assets/*.js module paths.
+      # A Vite production build bundles and renames these files, so build
+      # the standalone test target first and the production bundle last.
+      - name: Build test modules, run smoke tests, and verify production build
+        run: npm run test:ci
