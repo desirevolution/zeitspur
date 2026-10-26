@@ -1,0 +1,44 @@
+Zeitspur 0.30 – Offline Time Tracker
+
+1. Den Inhalt dieses ZIPs entpacken.
+2. Ein Terminal im entpackten Ordner öffnen.
+3. `python3 -m http.server 8080 --bind 127.0.0.1` ausführen.
+4. Im Browser http://localhost:8080 öffnen.
+
+Für Zugriff von anderen Geräten / mobile PWA einen HTTPS-Server einsetzen.
+Die Zeitdaten liegen ausschließlich im Browser (IndexedDB), nicht in diesem Ordner.
+Vor Löschen der Browserdaten immer JSON-Backup herunterladen.
+
+Enthalten: Timer, Pausen, Tages- und Wochenlöschung, kompakter Editor,
+große Kategorievorschläge und separater Verwalten-Modus, einheitliche
+Bestätigungsdialoge, CSV-Export mit Zeiträumen, JSON-Backup/Restore.
+
+Ein CSV-Teilen-Button ist auf Browsern mit nativer Dateifreigabe verfügbar.
+Ohne diese Unterstützung steht weiterhin der CSV-Download zur Verfügung.
+Mobile Einstellungen erscheinen bildschirmfüllend.
+Bei Daten löschen ist standardmäßig „Gesamte Historie“ ausgewählt;
+vor dem tatsächlichen Löschen fragt die App immer nach einer Bestätigung.
+
+NEU: Die App sucht online beim Start und beim Zurueckkehren nach Updates.
+Wenn ein Update verfuegbar ist, erscheint "Aktualisieren" / "Spaeter".
+Bitte bei Self-Hosting Cache-Control: no-cache konfigurieren (Details: README im Projekt-ZIP).
+Bei der ersten Aktualisierung aus v0.7 kann ggf. noch ein einmaliges manuelles Neuladen notwendig sein.
+
+NEU in 0.13: Im Editor heißen die Aktionen "Später" und "Abschließen".
+Kategorie und Beschreibung sind Pflichtfelder; fehlende Angaben werden am Feld angezeigt.
+
+NEU in 0.14: Mobile Kategorie-Vorschläge erhalten bei offener Tastatur mehr Platz; die untere Aktionsleiste erscheint beim Wechsel zur Beschreibung wieder.
+
+NEU in 0.15: Auch am Desktop bleiben Später und Abschließen bei langer Kategorienliste sichtbar. Nur das Formular scrollt.
+
+NEU in 0.16: Wortmarke „zeitspur.“ mit farbigem Punkt.
+Sprachen Deutsch / English mit automatischer Erkennung.
+Einstellungen → ganz unten → Sprache; Wahl bleibt lokal gespeichert.
+
+NEU in 0.17: Einstellungen mit fester Kopfzeile und Fertig oben rechts.
+Nur der Einstellungsinhalt scrollt; die untere Fertig-Taste entfällt.
+
+NEU in 0.19: Auch JSON-Backups koennen auf unterstuetzten Mobilgeraeten
+ueber das native Teilen-Menue versendet werden. Manche Chromium-Browser
+teilen sie als .txt mit unveraendertem JSON-Inhalt. Restore erlaubt
+daher .json und .txt. Normaler .json-Download bleibt erhalten.

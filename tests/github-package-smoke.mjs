@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { suggestPause } from '../dist/assets/pause-editor.js';
+const ts = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8');
+assert.match(ts, /suggestPause\(start, end, values\) === null/, 'Add break requires an available positive duration');
+assert.match(ts, /class="brand-mark brand-link" href="https:\/\/github.com\/desirevolution\/zeitspur" target="_blank" rel="noopener noreferrer"/, 'Header icon opens the real project in a new protected tab');
+assert.equal(suggestPause(1000, 1000, []), null, 'Zero work duration must disable add break');
+const start = 1_800_000;
+assert.equal(suggestPause(start, start+10*60_000, [{start,end:start+10*60_000}]), null, 'No remaining time after breaks');
+assert.ok(suggestPause(start, start+20*60_000, [{start,end:start+10*60_000}]), 'Available time enables add break');
+assert.ok(html.includes('manifest.webmanifest'));
+const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url)));
+assert.equal(pkg.version, '0.30.0');
+console.log('PASS: break disabled when no remaining duration; GitHub link, PWA package');

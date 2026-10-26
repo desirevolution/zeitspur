@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const html = readFileSync(new URL('../dist/index.html', import.meta.url), 'utf8');
+const script = readFileSync(new URL('../dist/assets/main.js', import.meta.url), 'utf8');
+const css = readFileSync(new URL('../dist/assets/styles.css', import.meta.url), 'utf8');
+assert.match(html, /interactive-widget=resizes-content/, 'viewport resize opt-in missing');
+assert.match(script, /Gespeicherte Kategorien und Einstellungen bleiben erhalten/, 'clear-history confirmation missing');
+assert.match(script, /id="editor-scroll-region"/, 'editor scroll region missing');
+assert.match(script, /monitorEditorViewport\(\)/, 'keyboard viewport handling missing');
+assert.match(script, /visualViewport/, 'VisualViewport fallback missing');
+assert.match(css, /#editor-dialog \.modal-body \{[^}]*overflow-y: auto/, 'editor body is not independently scrollable');
+assert.match(css, /#editor-dialog \.modal-actions \{[^}]*flex: 0 0 auto/, 'editor footer is not fixed in layout');
+console.log('PASS: viewport opt-in, scrollable form, persistent action footer, and history confirmation');

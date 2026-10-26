@@ -1,0 +1,17 @@
+# Development: docker compose -f compose.dev.yaml up --build
+services:
+  zeitspur-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "${ZEITSPUR_DEV_PORT:-5173}:5173"
+    volumes:
+      - .:/app
+      - zeitspur-node-modules:/app/node_modules
+    environment:
+      # Helps file change detection when editing through bind mounts.
+      CHOKIDAR_USEPOLLING: "true"
+    command: sh -c 'npm install --no-audit --no-fund && npm run dev -- --host 0.0.0.0 --port 5173'
+volumes:
+  zeitspur-node-modules:

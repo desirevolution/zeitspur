@@ -1,0 +1,16 @@
+{
+  "name": "Zeitspur – Lokaler Time Tracker",
+  "short_name": "Zeitspur",
+  "description": "Offline-Zeiterfassung mit lokaler Speicherung",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#111915",
+  "theme_color": "#111915",
+  "lang": "de",
+  "icons": [
+    { "src": "./icons/icon-classic-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "./icons/icon-classic-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
