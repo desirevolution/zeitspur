@@ -35,6 +35,14 @@ let busy = false;
 let refreshSequence = 0;
 let toastTimer: number | undefined;
 let heroVisible = true;
+// Only the locally opened Stop dialog keeps a frozen preview behind the modal.
+// The timer itself has already been stopped and persisted in IndexedDB.
+let stoppedPreviewSessionId: string | null = null;
+function stoppedPreviewSession(): Session | undefined {
+  return stoppedPreviewSessionId === null ? undefined : state.sessions.find(
+    (item) => item.id === stoppedPreviewSessionId && item.status === 'pending',
+  );
+}
 let visibilityObserver: IntersectionObserver | null = null;
 
 const iconPaths: Record<string, string> = {
@@ -277,15 +285,17 @@ function renderHistory(): string {
   </section>`;
 }
 function renderTimer(session: Session | undefined): string {
+  const preview = session ? undefined : stoppedPreviewSession();
+  const displayed = session ?? preview;
   const isPaused = session?.status === 'paused';
-  const status = session ? (isPaused ? 'Pausiert' : 'Läuft') : 'Bereit';
-  const stateClass = session ? (isPaused ? 'is-paused' : 'is-running') : 'is-idle';
+  const status = session ? (isPaused ? 'Pausiert' : 'Läuft') : preview ? 'Gestoppt' : 'Bereit';
+  const stateClass = session ? (isPaused ? 'is-paused' : 'is-running') : preview ? 'is-stopped' : 'is-idle';
   return `<section id="timer-hero" class="timer-card ${stateClass}" aria-label="Zeiterfassung">
     <div class="timer-card-top"><span class="live-status"><span class="status-light"></span>${status}</span></div>
-    <div class="timer-center"><div class="timer-display" data-clock>${session ? formatClock(workingMilliseconds(session)) : '00:00:00'}</div>
-      ${session ? `<span class="timer-subtitle">Beginn ${formatTime(session.startedAt)}</span>` : ''}
+    <div class="timer-center"><div class="timer-display" data-clock>${displayed ? formatClock(workingMilliseconds(displayed)) : '00:00:00'}</div>
+      ${displayed ? `<span class="timer-subtitle">Beginn ${formatTime(displayed.startedAt)}</span>` : ''}
     </div>
-    <div class="timer-actions">${!session ? `<button type="button" class="button primary big" data-action="start">${icon('play', 20)} Start</button>` :
+    <div class="timer-actions">${preview ? `<span class="timer-stopped-hint">${tr('Gestoppt')}</span>` : !session ? `<button type="button" class="button primary big" data-action="start">${icon('play', 20)} Start</button>` :
       `<button type="button" class="button secondary big" data-action="${isPaused ? 'resume' : 'pause'}">${icon(isPaused ? 'play' : 'pause', 19)} ${isPaused ? 'Weiter' : 'Pause'}</button>
        <button type="button" class="button stop big" data-action="stop">${icon('stop', 19)} Stop</button>`}
     </div>
@@ -299,7 +309,7 @@ function render(): void {
       <div class="header-actions"><button class="icon-button settings-button" type="button" data-action="settings" aria-label="Einstellungen öffnen">${icon('settings', 21)}</button></div>
     </header>
     <main>${renderTimer(session)}${renderPending()}${renderHistory()}</main>
-    <footer class="footer"><span>Version 0.31</span></footer>
+    <footer class="footer"><span>Version 0.32</span></footer>
   </div>
   <div class="mini-timer" id="mini-timer" ${session && !heroVisible ? '' : 'hidden'}><div class="mini-inner"><div class="mini-left"><span class="mini-status"></span><strong data-mini-clock>${session ? formatClock(workingMilliseconds(session)) : '00:00:00'}</strong><span>${session?.status === 'paused' ? 'Pausiert' : 'Timer läuft'}</span></div><button type="button" class="mini-jump" data-action="jump-to-timer">Zum Timer ${icon('arrow', 15)}</button></div></div>`;
   visibilityObserver?.disconnect();
@@ -316,7 +326,7 @@ function render(): void {
 }
 function updateClock(): void {
   const session = activeSession();
-  const time = session ? formatClock(workingMilliseconds(session)) : '00:00:00';
+  const time = session ? formatClock(workingMilliseconds(session)) : stoppedPreviewSession() ? formatClock(workingMilliseconds(stoppedPreviewSession()!)) : '00:00:00';
   document.querySelectorAll<HTMLElement>('[data-clock], [data-mini-clock]').forEach((node) => {
     if (node.textContent !== time) node.textContent = time;
   });
@@ -436,28 +446,38 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
     <button type="button" class="button outline small" data-action="add-pause">+ Pause hinzufügen</button></details>
     </div>
     <div class="editor-footer"><p class="editor-requirements" id="editor-requirements" role="status" aria-live="polite"></p>
-      ${canReturnToTimer ? '<button type="button" class="editor-defer" data-action="defer-editor">Später dokumentieren</button>' : ''}
-      <div class="modal-actions"><button type="button" class="button secondary" data-action="close-editor">${canReturnToTimer ? 'Zurück zum Timer' : 'Später'}</button><button type="submit" class="button primary">${icon('check', 18)} Abschließen</button></div></div>
+      <div class="modal-actions">
+        <button type="button" class="button secondary" data-action="close-editor">${canReturnToTimer ? 'Zurück' : 'Später'}</button>
+        ${canReturnToTimer ? '<button type="button" class="button secondary" data-action="defer-editor">Später</button>' : ''}
+        <button type="submit" class="button primary">Abschließen</button>
+      </div></div>
   </form>`;
   translateUi(editorDialog);
   const form = editorDialog.querySelector<HTMLFormElement>('#editor-form')!;
   // X, Escape and "Zurück zum Timer" share the same non-destructive exit.
   // "Später dokumentieren" deliberately keeps the stopped entry pending.
   editorDialog.addEventListener('close', () => {
-    if (!canReturnToTimer || documentationSaved || documentationDeferred) return;
+    if (!canReturnToTimer || documentationSaved || documentationDeferred) {
+      if (stoppedPreviewSessionId === session.id) stoppedPreviewSessionId = null;
+      // Deferring does not save the entry, so refresh the view explicitly.
+      if (documentationDeferred) void refresh();
+      return;
+    }
     void (async () => {
       busy = true;
       try {
         await returnToStoppedTimer(session.id, session.revision, stoppedFrom!);
         notifyChange();
+      } catch (error) {
+        showError(error); // Stopped entry remains available for documentation.
+      } finally {
+        if (stoppedPreviewSessionId === session.id) stoppedPreviewSessionId = null;
         await refresh();
         const hero = document.querySelector<HTMLElement>('#timer-hero');
         hero?.scrollIntoView({ block: 'start', behavior: 'smooth' });
         hero?.querySelector<HTMLButtonElement>('button[data-action="pause"], button[data-action="resume"]')?.focus({ preventScroll: true });
-      } catch (error) {
-        showError(error);
-        await refresh(); // Stopped entry remains available for documentation.
-      } finally { busy = false; }
+        busy = false;
+      }
     })();
   }, { once: true });
   const preventCancelDuringSave = (event: Event): void => {
@@ -1055,6 +1075,8 @@ async function timerAction(action: string): Promise<void> {
       const stopped = await stopTimer();
       stoppedId = stopped.id;
       previousStatus = stopped.previousStatus;
+      // Keep the exact persisted Stop duration visible behind the editor.
+      stoppedPreviewSessionId = stopped.id;
     }
     notifyChange();
     await refresh();

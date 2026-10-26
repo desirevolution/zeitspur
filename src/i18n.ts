@@ -58,6 +58,8 @@ const EN: Record<string, string> = {
   'Offen': 'Unfinished',
   'über Mitternacht': 'overnight',
   'Bereit': 'Ready',
+  'Gestoppt': 'Stopped',
+  'Zurück': 'Back',
   'Läuft': 'Running',
   'Pausiert': 'Paused',
   'Beginn': 'Started',

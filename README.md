@@ -46,16 +46,22 @@ This mounts the project into the container, exposes port 5173, and stores depend
 | `.github/workflows/docker-release.yml` | Push to `main`, Git tags `v*`, manual | Test, publish `ghcr.io/desirevolution/zeitspur` for `linux/amd64` and `linux/arm64`; on version tags also publish a GitHub Release with a ready-to-host static ZIP |
 | `.github/workflows/pages.yml` | Push to `main`, manual | Build and deploy the PWA to GitHub Pages |
 
-Docker tags: `main` on the main branch; version tags (`0.31.0`, `0.31`), and `latest` on version-tag releases; Git commit SHA tags are also published.
+Docker tags: `main` on the main branch; version tags (`0.32.0`, `0.32`), and `latest` on version-tag releases; Git commit SHA tags are also published.
 
-**Initial GitHub setup:** Copy these repository files into a clone of `https://github.com/desirevolution/zeitspur`, commit, and push to `main` (see below). In **Settings → Pages → Build and deployment**, select **GitHub Actions**. Allow GitHub Actions to create packages and releases, and configure workflow write access where your organization requires it. The workflows authenticate to GHCR with `GITHUB_TOKEN`; no registry password is required. **After the first GHCR publication, change package visibility to Public** if end users should pull the image without logging in. For the first GitHub release, synchronize `package.json`'s version and push a tag such as `v0.31.0`.
+**Initial GitHub setup:** Copy these repository files into a clone of `https://github.com/desirevolution/zeitspur`, commit, and push to `main` (see below). In **Settings → Pages → Build and deployment**, select **GitHub Actions**. Allow GitHub Actions to create packages and releases, and configure workflow write access where your organization requires it. The workflows authenticate to GHCR with `GITHUB_TOKEN`; no registry password is required. **After the first GHCR publication, change package visibility to Public** if end users should pull the image without logging in. For the first GitHub release, synchronize `package.json`'s version and push a tag such as `v0.32.0`.
 
 ```bash
-git tag v0.31.0
-git push origin v0.31.0
+git tag v0.32.0
+git push origin v0.32.0
 ```
 
 The Vite build uses **relative paths (`base: './'`)**, the manifest uses relative URLs, and the service worker is registered relative to the deployed app directory. This supports both `/` on your own domain and `/zeitspur/` on GitHub Pages. Each origin has **independent IndexedDB data**; changing between localhost, Pages, and a self-hosted domain does **not** sync data. Transfer sessions by JSON backup/restore. Browsers also need the correct HTTPS context for offline PWA functionality.
+
+## Version 0.32 changes
+
+- Stop freezes the visible timer at its persisted duration behind the documentation dialog; the counter no longer resets to 00:00:00 until the dialog has been completed or deferred.
+- The dialog opened directly by Stop has three equal-height buttons: **Zurück**, **Später**, **Abschließen**. Close and Escape act like Zurück. Später preserves the stopped entry for later documentation.
+- Returning to the timer retains the v0.31 undo-stop behavior; the dialog time is included when the previously running timer resumes.
 
 ## Version 0.31 changes
 

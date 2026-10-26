@@ -94,6 +94,8 @@ button svg { flex-shrink: 0; }
 .status-light, .mini-status { display: inline-block; flex-shrink: 0; width: 7px; height: 7px; border-radius: 50%; background: var(--soft); }
 .is-running .status-light, .mini-status { background: var(--active); }
 .is-paused .status-light { background: var(--warning); }
+.is-stopped .status-light { background: var(--warning); }
+.timer-stopped-hint { color: var(--muted); font-size: 13px; }
 .timer-center { display: flex; flex: 1; flex-direction: column; justify-content: center; align-items: center; gap: 6px; min-width: 0; padding: 27px 0 20px; text-align: center; }
 .timer-display { font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; font-size: clamp(50px, 8.4vw, 82px); line-height: 1.2; font-weight: 610; letter-spacing: -.058em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .timer-subtitle { color: var(--muted); font-size: 13px; }
@@ -211,10 +213,6 @@ dialog::backdrop { background: rgb(9 17 12 / 68%); backdrop-filter: blur(3px); }
 .field-error { color: var(--danger); font-size: 12px; font-weight: 500; }
 .field.field-invalid :is(input, textarea) { border-color: var(--danger); }
 .field.field-invalid :is(input, textarea):focus { outline-color: var(--danger); }
-/* Optional explicit deferral for stopped sessions; distinct from undoing Stop. */
-.editor-defer { justify-self: start; border: 0; padding: 4px 0; background: none; color: var(--muted); font: inherit; font-size: 12px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
-.editor-defer:hover { color: var(--text); }
-.editor-defer:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 .modal-actions, .confirm-actions { display: flex; justify-content: flex-end; gap: 10px; }
 
 /* Desktop editor: the dialog itself never scrolls. Only the middle section does,
@@ -502,4 +500,12 @@ dialog::backdrop { background: rgb(9 17 12 / 68%); backdrop-filter: blur(3px); }
 @media (max-width: 420px) {
   .pending-item { gap: 4px; }
   .pending-item .button { padding: 8px; font-size: 11px; }
+}
+
+/* 0.32: three equally reachable modal actions at small mobile widths. */
+#editor-dialog .modal-actions { min-width: 0; }
+#editor-dialog .modal-actions .button { min-width: 0; }
+@media (max-width: 650px) {
+  #editor-dialog .modal-actions { gap: 7px; }
+  #editor-dialog .modal-actions .button { padding: 10px 6px; font-size: 13px; }
 }
