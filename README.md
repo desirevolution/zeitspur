@@ -43,4 +43,11 @@ This mounts the project into the container, exposes port 5173, and stores depend
 - All sessions, preferences and categories remain local to the user's browser (`IndexedDB`). There is no server-side API, login, server backup or multi-device synchronization.
 - Exported CSVs use English snake_case column names, local timestamps without offset and English date-range filenames. JSON backup retains unambiguous time data.
 - **Back up before clearing browser data or changing the hosting URL.** Docker volumes do not protect local IndexedDB data.
-- No public software license has been selected yet. Add one explicitly before inviting third-party reuse.
+
+## About this project
+
+This project was built with AI assistance. I'm a lazy dev.
+
+## License
+
+[MIT](LICENSE).
