@@ -19,11 +19,11 @@ assert.match(main, /displayed \? formatClock\(workingMilliseconds\(displayed\)\)
   'Background timer must retain elapsed time rather than resetting to zero');
 assert.match(main, /stoppedPreviewSession\(\) \? formatClock\(workingMilliseconds\(stoppedPreviewSession\(\)!\)\)/,
   'Periodic clock updater must not clear the preview');
-assert.match(main, /data-action="close-editor">\$\{canReturnToTimer \? 'Zurück' : 'Später'\}/,
+assert.match(main, /data-action="close-editor">\$\{isManual \? 'Abbrechen' : canReturnToTimer \? 'Zurück' : session\.status === 'completed' \? 'Schließen' : 'Später'\}/,
   'Stop editor exposes Zurück button');
 assert.match(main, /canReturnToTimer \? '<button type="button" class="button secondary" data-action="defer-editor">Später<\/button>'/,
   'Stop editor exposes Später as a button rather than a text link');
-assert.match(main, /<button type="submit" class="button primary">Abschließen<\/button>/,
+assert.match(main, /<button type="submit" class="button primary">\$\{isManual \|\| session\.status === 'completed' \? 'Speichern' : 'Abschließen'\}/,
   'Stop editor exposes Abschließen as primary button');
 assert.doesNotMatch(main, /class="editor-defer"/, 'No text-link deferral in the dialog');
 assert.match(main, /if \(stoppedPreviewSessionId === session\.id\) stoppedPreviewSessionId = null/g,

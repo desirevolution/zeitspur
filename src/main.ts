@@ -1,4 +1,4 @@
-import { clearHistory, deleteDateRange, deleteDay, deleteWeek, deleteEntry, deleteCategorySuggestion, pauseTimer, restoreBackup, resumeTimer, saveEditedSession, setTheme, setLanguage, setCategoryListExpanded, snapshot, startTimer, stopTimer, returnToStoppedTimer, undoDeleteEntry } from './db.js';
+import { clearHistory, createManualSession, deleteDateRange, deleteDay, deleteWeek, deleteEntry, deleteCategorySuggestion, pauseTimer, restoreBackup, resumeTimer, saveEditedSession, setTheme, setLanguage, setCategoryListExpanded, snapshot, startTimer, stopTimer, returnToStoppedTimer, undoDeleteEntry } from './db.js';
 import { dateKey, formatClock, formatDayLabel, formatDuration, formatTime, groupSessionsByDay, localWeekBounds, presetRange, workingMilliseconds } from './time.js';
 import type { Session, Snapshot, Theme, LanguagePreference } from './types.js';
 import type { StoppedFrom } from './timer-recovery.js';
@@ -23,6 +23,7 @@ const app = document.querySelector<HTMLElement>('#app')!;
 const editorDialog = document.querySelector<HTMLDialogElement>('#editor-dialog')!;
 const settingsDialog = document.querySelector<HTMLDialogElement>('#settings-dialog')!;
 const confirmDialog = document.querySelector<HTMLDialogElement>('#confirm-dialog')!;
+const helpDialog = document.querySelector<HTMLDialogElement>('#help-dialog')!;
 const toastElement = document.querySelector<HTMLElement>('#toast')!;
 const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('zeitspur-events-v1') : null;
 let state: Snapshot = { sessions: [], activeSessionId: null, theme: 'system', language: 'auto', categories: [], categoryListExpanded: false };
@@ -58,6 +59,8 @@ const iconPaths: Record<string, string> = {
   folder: '<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3z"/>',
   check: '<path d="m5 12 4 4L19 6"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>',
+  keyboard: '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M10 13h.01M14 13h.01M18 13h.01M7 16h10"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
   trash: '<path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 10v7M14 10v7"/>',
   download: '<path d="M12 3v13m-5-5 5 5 5-5M4 17v4h16v-4"/>',
   restore: '<path d="M12 3a9 9 0 1 1-8 5M3 3v6h6"/>',
@@ -211,12 +214,28 @@ function renderPending(): string {
   if (!pending.length) return '';
   return `<section class="section pending-section" aria-label="Offene Einträge">
     <div class="section-head"><h2>Offene Einträge <span class="count">${pending.length}</span></h2></div>
-    <div class="pending-list">${pending.map((session) => `<div class="pending-item">
-      <div class="pending-content"><strong>Nicht dokumentiert</strong><span>${escapeHtml(new Intl.DateTimeFormat(intlLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(session.startedAt))}${workingMilliseconds(session) ? ` · ${escapeHtml(displayListDuration(workingMilliseconds(session)))}` : ''}</span></div>
-      <button type="button" class="button outline small" data-action="edit" data-id="${session.id}">Ergänzen ${icon('arrow', 15)}</button>
-      ${deleteButton('entry', session.id)}
-    </div>`).join('')}</div></section>`;
+    <div class="pending-list">${pending.map((session) => {
+      const category = session.category?.trim();
+      const description = session.description?.trim();
+      const missing = documentationHint(category ?? '', description ?? '');
+      const start = new Intl.DateTimeFormat(intlLocale(), { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(session.startedAt);
+      const end = session.stoppedAt === null ? '…'
+        : dateKey(session.startedAt) === dateKey(session.stoppedAt) ? formatTime(session.stoppedAt)
+        : new Intl.DateTimeFormat(intlLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(session.stoppedAt);
+      const duration = displayListDuration(workingMilliseconds(session));
+      return `<div class="pending-item">
+        <div class="pending-content">
+          <strong ${category ? 'translate="no"' : ''}>${category ? escapeHtml(category) : tr('Ohne Kategorie')}</strong>
+          ${description ? `<span class="pending-description" translate="no">${escapeHtml(description)}</span>` : ''}
+          <span class="pending-meta">${escapeHtml(start)} – ${escapeHtml(end)} · ${escapeHtml(duration)}</span>
+          ${missing ? `<span class="pending-missing">${escapeHtml(tr(missing))}</span>` : '<span class="pending-missing">Offen</span>'}
+        </div>
+        <button type="button" class="button outline small" data-action="edit" data-id="${escapeHtml(session.id)}">Ergänzen ${icon('arrow', 15)}</button>
+        ${deleteButton('entry', session.id)}
+      </div>`;
+    }).join('')}</div></section>`;
 }
+
 function renderHistoryDay(day: DayGroup): string {
   const open = expandedDays.has(day.key) || (!collapsedDays.has(day.key) && day.key === dateKey(Date.now()));
   return `<article class="day-card">
@@ -296,8 +315,8 @@ function renderTimer(session: Session | undefined): string {
       ${displayed ? `<span class="timer-subtitle">Beginn ${formatTime(displayed.startedAt)}</span>` : ''}
     </div>
     <div class="timer-actions">${preview ? `<span class="timer-stopped-hint">${tr('Gestoppt')}</span>` : !session ? `<button type="button" class="button primary big" data-action="start">${icon('play', 20)} Start</button>` :
-      `<button type="button" class="button secondary big" data-action="${isPaused ? 'resume' : 'pause'}">${icon(isPaused ? 'play' : 'pause', 19)} ${isPaused ? 'Weiter' : 'Pause'}</button>
-       <button type="button" class="button stop big" data-action="stop">${icon('stop', 19)} Stop</button>`}
+      `<button type="button" class="button secondary big" data-action="${isPaused ? 'resume' : 'pause'}">${icon(isPaused ? 'play' : 'pause', 19)} ${isPaused ? 'Weiter' : 'Pause'} <kbd class="shortcut-hint">P</kbd></button>
+       <button type="button" class="button stop big" data-action="stop">${icon('stop', 19)} Stop <kbd class="shortcut-hint">S</kbd></button>`}
     </div>
   </section>`;
 }
@@ -306,10 +325,10 @@ function render(): void {
   const session = activeSession();
   app.innerHTML = `<div class="page-wrap">
     <header class="site-header"><div class="identity"><a class="brand-mark brand-link" href="https://github.com/desirevolution/zeitspur" target="_blank" rel="noopener noreferrer" aria-label="Zeitspur auf GitHub öffnen (neuer Tab)" title="Zeitspur auf GitHub öffnen (neuer Tab)">${icon('clock', 28)}</a><div class="brand">zeitspur<span class="brand-dot">.</span></div></div>
-      <div class="header-actions"><button class="icon-button settings-button" type="button" data-action="settings" aria-label="Einstellungen öffnen">${icon('settings', 21)}</button></div>
+      <div class="header-actions"><button class="button outline header-new-entry" type="button" data-action="new-entry" title="Neuen Eintrag erstellen (N)">${icon('plus', 16)} <span>Eintrag</span><kbd class="shortcut-hint">N</kbd></button><button class="icon-button help-button" type="button" data-action="keyboard-help" title="Tastaturhilfe (?)" aria-label="Tastaturhilfe anzeigen">${icon('keyboard', 20)}</button><button class="icon-button settings-button" type="button" data-action="settings" aria-label="Einstellungen öffnen">${icon('settings', 21)}</button></div>
     </header>
     <main>${renderTimer(session)}${renderPending()}${renderHistory()}</main>
-    <footer class="footer"><span>Version 0.33</span></footer>
+    <footer class="footer"><span>Version 0.34</span></footer>
   </div>
   <div class="mini-timer" id="mini-timer" ${session && !heroVisible ? '' : 'hidden'}><div class="mini-inner"><div class="mini-left"><span class="mini-status"></span><strong data-mini-clock>${session ? formatClock(workingMilliseconds(session)) : '00:00:00'}</strong><span>${session?.status === 'paused' ? 'Pausiert' : 'Timer läuft'}</span></div><button type="button" class="mini-jump" data-action="jump-to-timer">Zum Timer ${icon('arrow', 15)}</button></div></div>`;
   visibilityObserver?.disconnect();
@@ -392,12 +411,13 @@ function monitorEditorViewport(): void {
   applyViewport();
 }
 
-function editSession(id: string, stoppedFrom?: StoppedFrom): void {
+function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Session): void {
   // A new editor starts in normal mode even if a previous editor was closed during typing.
   editorDialog.classList.remove('category-picking');
-  const session = state.sessions.find((s) => s.id === id);
+  const session = manualDraft ?? state.sessions.find((s) => s.id === id);
   if (!session || (session.status !== 'pending' && session.status !== 'completed')) return toast('Eintrag ist nicht mehr verfügbar.');
   const editingSession = session;
+  const isManual = manualDraft !== undefined;
   // Only an editor opened directly by Stop can undo that Stop.
   const canReturnToTimer = session.status === 'pending' && stoppedFrom !== undefined;
   let documentationSaved = false;
@@ -414,7 +434,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
     <input type="hidden" class="pause-end-date" value="${localPauseDate(end)}">
   </div>`;
   editorDialog.innerHTML = `<form id="editor-form" class="modal-content" novalidate>
-    <div class="modal-top"><div><h2 id="editor-title">${session.status === 'completed' ? 'Eintrag bearbeiten' : 'Zeit dokumentieren'}</h2></div><button type="button" class="icon-button" data-action="close-editor" aria-label="${canReturnToTimer ? tr('Zurück zum Timer') : tr('Schließen')}">${icon('close', 20)}</button></div>
+    <div class="modal-top"><div><h2 id="editor-title">${isManual ? 'Neuer Zeiteintrag' : session.status === 'completed' ? 'Eintrag bearbeiten' : 'Zeit dokumentieren'}</h2></div><button type="button" class="icon-button" data-action="close-editor" aria-label="${canReturnToTimer ? tr('Zurück zum Timer') : tr('Schließen')}">${icon('close', 20)}</button></div>
     <div class="modal-body" id="editor-scroll-region">
     <div class="modal-summary"><span>${icon('clock', 18)} ${formatDuration(workingMilliseconds(session))}</span><span>${escapeHtml(new Intl.DateTimeFormat(intlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }).format(session.startedAt))}</span></div>
     <div class="field-grid">
@@ -426,13 +446,13 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
       <label class="field"><span>Startdatum</span><input id="entry-start-date" type="date" required value="${toLocalInput(session.startedAt).split('T')[0]}"></label>
       <label class="field"><span>Enddatum</span><input id="entry-end-date" type="date" required value="${toLocalInput(session.stoppedAt ?? session.startedAt).split('T')[0]}"></label>
     </div></details>
-    <label class="field"><span>Kategorie <span class="required">*</span></span><input id="category" name="category" autocomplete="off" maxlength="90" required aria-describedby="category-error" placeholder="Kategorie eingeben oder auswählen" value="${escapeHtml(session.category ?? '')}" /><span id="category-error" class="field-error" hidden>Kategorie fehlt.</span></label>
+    <label class="field"><span>Kategorie <span class="required">*</span></span><input id="category" name="category" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls="category-options" autocomplete="off" maxlength="90" required aria-describedby="category-error" placeholder="Kategorie eingeben oder auswählen" value="${escapeHtml(session.category ?? '')}" /><span id="category-error" class="field-error" hidden>Kategorie fehlt.</span></label>
     <div class="category-picker" id="category-picker">
       <div class="category-picker-head"><span id="category-list-label">Zuletzt verwendet</span><span class="category-count" id="category-count">${list.length} Kategorien</span></div>
       <div class="category-search" id="category-search-wrap" ${state.categoryListExpanded ? '' : 'hidden'}>
         <input id="category-search" type="search" placeholder="Kategorien durchsuchen" aria-label="Kategorien durchsuchen" autocomplete="off" />
       </div>
-      <div id="category-options" class="category-options" aria-label="Kategorien auswählen"></div>
+      <div id="category-options" class="category-options" role="listbox" aria-label="Kategorien auswählen"></div>
       <p class="category-new-hint" id="category-new-hint" hidden></p>
       <button type="button" class="category-expand-button" id="category-expand" data-action="expand-categories" aria-expanded="${state.categoryListExpanded}" aria-controls="category-search-wrap category-options">
         ${state.categoryListExpanded ? 'Weniger anzeigen' : 'Alle Kategorien anzeigen'} ${icon('chevron', 16)}
@@ -447,9 +467,9 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
     </div>
     <div class="editor-footer"><p class="editor-requirements" id="editor-requirements" role="status" aria-live="polite"></p>
       <div class="modal-actions">
-        <button type="button" class="button secondary" data-action="close-editor">${canReturnToTimer ? 'Zurück' : 'Später'}</button>
+        <button type="button" class="button secondary" data-action="close-editor">${isManual ? 'Abbrechen' : canReturnToTimer ? 'Zurück' : session.status === 'completed' ? 'Schließen' : 'Später'}</button>
         ${canReturnToTimer ? '<button type="button" class="button secondary" data-action="defer-editor">Später</button>' : ''}
-        <button type="submit" class="button primary">Abschließen</button>
+        <button type="submit" class="button primary">${isManual || session.status === 'completed' ? 'Speichern' : 'Abschließen'} <kbd class="shortcut-hint">Ctrl+Enter</kbd></button>
       </div></div>
   </form>`;
   translateUi(editorDialog);
@@ -532,6 +552,10 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
   let attemptedCompletion = false;
   let liveEntryError = '';
   let livePauseError = false;
+  function updateFinishState(): void {
+    const complete = missingDocumentationFields(categoryField.value, descriptionField.value).length === 0;
+    finishButton.disabled = !complete || Boolean(liveEntryError || livePauseError) || !form.checkValidity();
+  }
   function updateEditorFooter(): void {
     const hint = documentationHint(categoryField.value, descriptionField.value);
     const notes = [liveEntryError ? tr(liveEntryError) : '', livePauseError ? tr('Bitte Pausenzeiten korrigieren.') : '', tr(hint)].filter(Boolean);
@@ -550,6 +574,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
       form.querySelector<HTMLElement>(`#${name}-error`)!.hidden = !invalid;
     }
     updateEditorFooter();
+    updateFinishState();
     return missing;
   }
   function focusDocumentationField(field: HTMLInputElement | HTMLTextAreaElement): void {
@@ -564,6 +589,20 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
     });
   }
   let isExpanded = state.categoryListExpanded;
+  let activeCategoryIndex = -1;
+  function categoryButtons(): HTMLButtonElement[] {
+    return [...form.querySelectorAll<HTMLButtonElement>('#category-options button.category-select')];
+  }
+  function highlightCategory(index: number): void {
+    const options = categoryButtons();
+    activeCategoryIndex = options.length ? (index + options.length) % options.length : -1;
+    options.forEach((option, i) => option.classList.toggle('keyboard-active', i === activeCategoryIndex));
+    const chosen = options[activeCategoryIndex];
+    if (chosen) {
+      categoryField.setAttribute('aria-activedescendant', chosen.id);
+      chosen.scrollIntoView({ block: 'nearest' });
+    } else categoryField.removeAttribute('aria-activedescendant');
+  }
   function refreshPicker(): void {
     const draft = categoryField.value.trim();
     const available = pickerCategories(state.categories, draft, isExpanded, categorySearch.value);
@@ -571,8 +610,10 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
     form.querySelector<HTMLElement>('#category-list-label')!.textContent = tr(isExpanded ? 'Alle Kategorien' : matches ? 'Passend & zuletzt verwendet' : 'Zuletzt verwendet');
     form.querySelector<HTMLElement>('#category-count')!.textContent = tr(`${list.length} ${list.length === 1 ? 'Kategorie' : 'Kategorien'}`);
     form.querySelector<HTMLElement>('#category-options')!.innerHTML = available.length
-      ? available.map(name => `<button type="button" class="category-select ${categoryKey(name) === categoryKey(draft) ? 'selected' : ''}" data-action="use-category" data-category="${escapeHtml(name)}" aria-pressed="${categoryKey(name) === categoryKey(draft)}">${escapeHtml(name)}</button>`).join('')
+      ? available.map((name, i) => `<button type="button" id="category-option-${i}" role="option" class="category-select ${categoryKey(name) === categoryKey(draft) ? 'selected' : ''}" data-action="use-category" tabindex="-1" data-category="${escapeHtml(name)}" aria-selected="${categoryKey(name) === categoryKey(draft)}">${escapeHtml(name)}</button>`).join('')
       : `<span class="category-empty">${tr(list.length ? 'Keine Kategorien gefunden' : 'Noch keine Kategorien')}</span>`;
+    activeCategoryIndex = -1;
+    categoryField.removeAttribute('aria-activedescendant');
     const hint = form.querySelector<HTMLElement>('#category-new-hint')!;
     const isNew = Boolean(draft && !list.some(name => categoryKey(name) === categoryKey(draft)));
     hint.hidden = !isNew;
@@ -614,7 +655,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
     const dateEditor = form.querySelector<HTMLElement>('.date-editor')!;
     dateEditor.classList.toggle('field-invalid', invalid && startDateField.value > endDateField.value);
     updateEditorFooter();
-    finishButton.disabled = invalid || livePauseError;
+    updateFinishState();
   }
   function entryBounds(): { start: number; end: number } {
     const start = fromDateAndClock(form.querySelector<HTMLInputElement>('#entry-start-date')!.value, form.querySelector<HTMLInputElement>('#entry-start-time')!.value, editingSession.startedAt);
@@ -694,7 +735,8 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
       addPauseButton.disabled = true;
       // Existing break errors are not erased; changing the range alone must not fix them silently.
       livePauseError = false;
-      finishButton.disabled = true;
+      liveEntryError ||= 'Ungültiges Datum oder Uhrzeit.';
+      updateFinishState();
       updateEditorFooter();
       return false;
     }
@@ -726,7 +768,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
     // A new break needs at least one full minute of uncovered time; a zero-duration
     // entry or a work interval fully covered by breaks must never offer this action.
     addPauseButton.disabled = livePauseError || suggestPause(start, end, values) === null;
-    finishButton.disabled = livePauseError;
+    updateFinishState();
     form.querySelector<HTMLElement>('#pause-summary')!.classList.toggle('summary-invalid', livePauseError);
     updateEditorFooter();
     return !livePauseError;
@@ -797,9 +839,28 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
   });
   // Keyboard users can advance directly from a typed category to the description.
   categoryField.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.isComposing) {
+    if (event.isComposing) return;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      const options = categoryButtons();
+      if (options.length) {
+        event.preventDefault();
+        highlightCategory(activeCategoryIndex + (event.key === 'ArrowDown' ? 1 : -1));
+      }
+    } else if (event.key === 'Tab' && !event.shiftKey) {
+      // Skip several mouse-oriented suggestion buttons: Tab reaches the description.
       event.preventDefault();
       focusDocumentationField(descriptionField);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      const option = categoryButtons()[activeCategoryIndex];
+      if (option) option.click();
+      else focusDocumentationField(descriptionField);
+    } else if (event.key === 'Escape' && activeCategoryIndex >= 0) {
+      event.preventDefault();
+      event.stopPropagation();
+      activeCategoryIndex = -1;
+      categoryButtons().forEach(option => option.classList.remove('keyboard-active'));
+      categoryField.removeAttribute('aria-activedescendant');
     }
   });
   descriptionField.addEventListener('input', updateDocumentationFeedback);
@@ -827,25 +888,77 @@ function editSession(id: string, stoppedFrom?: StoppedFrom): void {
       const start = fromDateAndClock(form.querySelector<HTMLInputElement>('#entry-start-date')!.value, form.querySelector<HTMLInputElement>('#entry-start-time')!.value, editingSession.startedAt);
       const end = fromDateAndClock(form.querySelector<HTMLInputElement>('#entry-end-date')!.value, form.querySelector<HTMLInputElement>('#entry-end-time')!.value, editingSession.stoppedAt!);
       const pauses = pauseRows().map(readPauseRow);
-      await saveEditedSession(session.id, session.revision, {
+      const editedValues = {
         startedAt: start, stoppedAt: end, pauses,
         category: form.querySelector<HTMLInputElement>('#category')!.value,
         description: form.querySelector<HTMLTextAreaElement>('#description')!.value,
-      });
+      };
+      if (isManual) await createManualSession(editedValues);
+      else await saveEditedSession(session.id, session.revision, editedValues);
       notifyChange();
       documentationSaved = true;
       editorDialog.close();
       await refresh();
-      toast(session.status === 'pending' ? 'Zeiterfassung abgeschlossen.' : 'Eintrag gespeichert.');
+      toast(isManual ? 'Eintrag erstellt.' : session.status === 'pending' ? 'Zeiterfassung abgeschlossen.' : 'Eintrag gespeichert.');
     } catch (error) { showError(error); }
     finally { busy = false; }
   });
+  form.addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.isComposing) return;
+    event.preventDefault();
+    if (busy) return;
+    if (finishButton.disabled) {
+      const missing = missingDocumentationFields(categoryField.value, descriptionField.value);
+      if (missing.length) focusDocumentationField(missing[0] === 'category' ? categoryField : descriptionField);
+      else if (liveEntryError) focusDocumentationField(startTimeField);
+      else if (livePauseError) {
+        form.querySelector<HTMLDetailsElement>('details.pause-editor')!.open = true;
+        focusDocumentationField(pauseRows().find(row => row.classList.contains('pause-invalid'))?.querySelector<HTMLInputElement>('.pause-start') ?? startTimeField);
+      }
+      return;
+    }
+    form.requestSubmit(finishButton);
+  });
   editorDialog.showModal();
   monitorEditorViewport();
-  if (session.status === 'pending' && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
-    window.setTimeout(() => form.querySelector<HTMLInputElement>('#category')?.focus(), 40);
+  if ((isManual || session.status === 'pending') && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    window.setTimeout(() => (isManual ? startTimeField : categoryField).focus(), 40);
   }
 }
+function newManualEntry(): void {
+  if (busy || editorDialog.open || settingsDialog.open || confirmDialog.open || helpDialog.open) return;
+  const end = new Date();
+  end.setSeconds(0, 0);
+  const start = end.getTime() - 30 * 60 * 1000;
+  const now = Date.now();
+  // This is an in-memory draft. Abbrechen/X/Escape never writes it to IndexedDB.
+  const draft: Session = {
+    id: crypto.randomUUID(), status: 'pending', startedAt: start, stoppedAt: end.getTime(),
+    segments: [{ start, end: end.getTime() }], category: null, description: null,
+    createdAt: now, updatedAt: now, revision: 0,
+  };
+  editSession(draft.id, undefined, draft);
+}
+
+function showKeyboardHelp(): void {
+  if (helpDialog.open) return;
+  const shortcuts: [string, string][] = [
+    ['T', 'Timer starten'], ['P', 'Timer pausieren / fortsetzen'], ['S', 'Timer stoppen'],
+    ['N', 'Neuen Eintrag erstellen'], ['?', 'Tastaturhilfe anzeigen'],
+    ['Tab', 'Nächstes Feld'], ['↑ / ↓', 'Kategorie auswählen'],
+    ['Enter', 'Kategorie übernehmen'], ['Ctrl / ⌘ + Enter', 'Eintrag speichern / abschließen'],
+    ['Esc', 'Dialog schließen'],
+  ];
+  helpDialog.innerHTML = `<div class="modal-content shortcut-help-content">
+    <div class="modal-top"><h2 id="help-title">Tastaturkürzel</h2><button class="icon-button" type="button" data-action="close-help" aria-label="Schließen">${icon('close', 20)}</button></div>
+    <div class="modal-body"><p class="modal-hint">Globale Kürzel funktionieren nur außerhalb von Formularfeldern und Dialogen.</p>
+    <div class="shortcut-list">${shortcuts.map(([key, title]) => `<div class="shortcut-row"><span>${escapeHtml(tr(title))}</span><kbd>${escapeHtml(key)}</kbd></div>`).join('')}</div></div>
+    <div class="editor-footer"><button type="button" class="button secondary" data-action="close-help">Schließen</button></div>
+  </div>`;
+  translateUi(helpDialog);
+  helpDialog.showModal();
+}
+
 const RANGE_LABELS: { id: CsvPreset; label: string }[] = [
   { id: 'week', label: 'Diese Woche' },
   { id: 'last-week', label: 'Letzte Woche' },
@@ -1144,6 +1257,8 @@ app.addEventListener('click', (event) => {
       } catch (error) { showError(error); } finally { busy = false; }
     })();
   }
+  if (action === 'new-entry') newManualEntry();
+  if (action === 'keyboard-help') showKeyboardHelp();
   if (action === 'settings') showSettings();
   if (action === 'retry') void refresh();
   if (action === 'jump-to-timer') document.querySelector('#timer-hero')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1297,6 +1412,24 @@ settingsDialog.addEventListener('click', (event) => {
       } catch (error) { showError(error); }
     })();
   }
+});
+helpDialog.addEventListener('click', (event) => {
+  if ((event.target as HTMLElement).closest('[data-action="close-help"]')) helpDialog.close();
+});
+/** Global shortcuts never hijack typing, modifiers or a visible modal. */
+document.addEventListener('keydown', (event) => {
+  if (event.defaultPrevented || event.repeat || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+  if (editorDialog.open || settingsDialog.open || confirmDialog.open || helpDialog.open) return;
+  const target = event.target;
+  if (target instanceof HTMLElement && (target.closest('input, textarea, select, [contenteditable="true"]') || target.isContentEditable)) return;
+  const key = event.key.toLowerCase();
+  if (key === '?') { event.preventDefault(); showKeyboardHelp(); return; }
+  if (key === 'n') { event.preventDefault(); newManualEntry(); return; }
+  const active = activeSession();
+  const action = key === 't' && !active ? 'start'
+    : key === 'p' && active ? active.status === 'paused' ? 'resume' : 'pause'
+    : key === 's' && active ? 'stop' : '';
+  if (action) { event.preventDefault(); void timerAction(action); }
 });
 channel?.addEventListener('message', () => { void refresh(); });
 window.addEventListener('focus', () => { void refresh(); });

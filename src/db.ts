@@ -223,6 +223,30 @@ export async function saveEditedSession(id: string, expectedRevision: number, va
   });
 }
 
+/** Persist a manually entered record only after the user completes the editor.
+ * Aborting the unsaved draft never creates an unfinished record. */
+export async function createManualSession(values: import('./records.js').EditValues): Promise<string> {
+  const { buildEditedSession } = await import('./records.js');
+  if (!values.category.trim() || !values.description.trim()) throw new Error('Kategorie und Beschreibung sind Pflichtfelder.');
+  const now = Date.now();
+  const id = crypto.randomUUID();
+  const draft: Session = {
+    id, status: 'pending', startedAt: values.startedAt, stoppedAt: values.stoppedAt,
+    segments: [{ start: values.startedAt, end: values.stoppedAt }],
+    category: null, description: null, createdAt: now, updatedAt: now, revision: 0,
+  };
+  const edited = buildEditedSession(draft, values, now);
+  if (edited.status !== 'completed') throw new Error('Kategorie und Beschreibung sind Pflichtfelder.');
+  await transact('readwrite', async (sessions, settings) => {
+    const stored = await request<StoredSetting | undefined>(settings.get('categories'));
+    const updated = useCategory(savedCategories(stored), edited.category!, now);
+    edited.category = updated.name;
+    await request(sessions.add(edited));
+    await request(settings.put({ key: 'categories', value: updated.items }));
+  });
+  return id;
+}
+
 export async function deleteEntry(id: string): Promise<Session> {
   return transact('readwrite', async (sessions, settings) => {
     const active = await request<StoredSetting | undefined>(settings.get('activeSessionId'));

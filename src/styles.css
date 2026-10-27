@@ -509,3 +509,27 @@ dialog::backdrop { background: rgb(9 17 12 / 68%); backdrop-filter: blur(3px); }
   #editor-dialog .modal-actions { gap: 7px; }
   #editor-dialog .modal-actions .button { padding: 10px 6px; font-size: 13px; }
 }
+
+/* Keyboard-first entry workflow, without adding desktop-only UI clutter on mobile. */
+kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); color: var(--muted); font: 600 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }
+.shortcut-hint { font-size: 10px; margin-left: 4px; border-color: currentColor; background: transparent; opacity: .75; color: inherit; }
+.header-actions .header-new-entry { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 10px 12px; }
+.help-button { border: 1px solid var(--line); background: var(--surface); }
+.pending-content { min-width: 0; }
+.pending-description { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.pending-meta { font-variant-numeric: tabular-nums; }
+.pending-missing { color: var(--warning); font-size: 12px; }
+.category-select.keyboard-active { background: var(--accent-tint); outline: 2px solid var(--accent); outline-offset: -2px; }
+#help-dialog { width: min(92vw, 490px); max-height: 88dvh; border: 1px solid var(--line); border-radius: 18px; padding: 0; color: var(--text); background: var(--surface); box-shadow: var(--shadow); }
+#help-dialog::backdrop { background: rgb(0 0 0 / 65%); }
+.shortcut-help-content { max-height: 88dvh; }
+.shortcut-list { display: grid; gap: 0; }
+.shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding: 10px 0; font-size: 14px; }
+.shortcut-row:last-child { border-bottom: 0; }
+@media (max-width: 650px) {
+  .shortcut-hint, .help-button { display: none; }
+  .header-actions .header-new-entry { padding: 9px; }
+  .header-actions .header-new-entry span { display: none; }
+  .site-header { gap: 8px; }
+}
+.pending-content .pending-missing { color: var(--warning); }
