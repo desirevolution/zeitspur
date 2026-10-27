@@ -53,6 +53,16 @@ export function buildEditedSession(session: Session, values: EditValues, now = D
   };
 }
 
+/** Preserve a partially or fully filled documentation draft without completing it.
+ * Even if both fields are present, explicitly choosing "Später" keeps the entry open.
+ * Shared validation in buildEditedSession still enforces valid time/pause ranges.
+ */
+export function buildDeferredSession(session: Session, values: EditValues, now = Date.now()): Session {
+  if (session.status !== 'pending') throw new Error('Nur offene Einträge können später dokumentiert werden.');
+  const edited = buildEditedSession(session, values, now);
+  return { ...edited, status: 'pending' };
+}
+
 function localDayBounds(key: string): { start: number; end: number } {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) throw new Error('Ungültiges Tagesdatum.');
   const [y, m, d] = key.split('-').map(Number);

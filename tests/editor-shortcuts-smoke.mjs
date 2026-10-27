@@ -16,7 +16,8 @@ const outcomes = [
 for (const [mode, complete, timeValid, expected] of outcomes) {
   assert.equal(editorShortcutAction(mode, complete, timeValid), expected, `${mode}/${complete}/${timeValid}`);
 }
-assert.match(main, /form\.querySelector<HTMLButtonElement>\(canReturnToTimer/);
+assert.match(main, /void deferEditor\(\)/);
+assert.match(main, /await saveDeferredSession\(editingSession\.id, editingSession\.revision, editedValuesFromForm\(\)\)/);
 assert.match(main, /data-shortcut-later hidden/);
 assert.match(main, /finishHint\.hidden = action !== 'finish' \|\| finishButton\.disabled/);
 assert.match(main, /laterHint\.hidden = action !== 'later'/);

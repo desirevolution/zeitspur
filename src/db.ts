@@ -206,21 +206,36 @@ export async function setTheme(theme: Theme): Promise<void> {
 }
 
 // Operations introduced after the first POC: all changes remain atomic across tabs.
-export async function saveEditedSession(id: string, expectedRevision: number, values: import('./records.js').EditValues): Promise<void> {
-  const { buildEditedSession } = await import('./records.js');
+/** Commit all editor changes atomically. "Später" persists the current partial
+ * values (including modified times and pauses) without marking the record done.
+ * The revision check also protects against concurrent edits in another tab.
+ */
+async function persistEditedSession(
+  id: string, expectedRevision: number, values: import('./records.js').EditValues, defer: boolean,
+): Promise<void> {
+  const { buildEditedSession, buildDeferredSession } = await import('./records.js');
   await transact('readwrite', async (sessions, settings) => {
     const current = await request<Session | undefined>(sessions.get(id));
     if (!current || current.revision !== expectedRevision) throw new Error('Der Eintrag wurde in einem anderen Tab geändert. Bitte erneut öffnen.');
     const categorySetting = await request<StoredSetting | undefined>(settings.get('categories'));
     const list = savedCategories(categorySetting);
-    const edited = buildEditedSession(current, values);
-    if (edited.status === 'completed' && edited.category) {
+    const edited = defer ? buildDeferredSession(current, values) : buildEditedSession(current, values);
+    // A category chosen in a partial draft should appear in future suggestions.
+    if (edited.category) {
       const updated = useCategory(list, edited.category, Date.now());
       edited.category = updated.name;
       await request(settings.put({ key: 'categories', value: updated.items }));
     }
     await request(sessions.put(edited));
   });
+}
+
+export async function saveEditedSession(id: string, expectedRevision: number, values: import('./records.js').EditValues): Promise<void> {
+  await persistEditedSession(id, expectedRevision, values, false);
+}
+
+export async function saveDeferredSession(id: string, expectedRevision: number, values: import('./records.js').EditValues): Promise<void> {
+  await persistEditedSession(id, expectedRevision, values, true);
 }
 
 /** Persist a manually entered record only after the user completes the editor.

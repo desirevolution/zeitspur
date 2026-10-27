@@ -1,4 +1,4 @@
-import { clearHistory, createManualSession, deleteDateRange, deleteDay, deleteWeek, deleteEntry, deleteCategorySuggestion, pauseTimer, restoreBackup, resumeTimer, saveEditedSession, setTheme, setLanguage, setCategoryListExpanded, snapshot, startTimer, stopTimer, returnToStoppedTimer, undoDeleteEntry } from './db.js';
+import { clearHistory, createManualSession, deleteDateRange, deleteDay, deleteWeek, deleteEntry, deleteCategorySuggestion, pauseTimer, restoreBackup, resumeTimer, saveEditedSession, saveDeferredSession, setTheme, setLanguage, setCategoryListExpanded, snapshot, startTimer, stopTimer, returnToStoppedTimer, undoDeleteEntry } from './db.js';
 import { dateKey, formatClock, formatDayLabel, formatDuration, formatTime, groupSessionsByDay, localWeekBounds, presetRange, workingMilliseconds } from './time.js';
 import type { Session, Snapshot, Theme, LanguagePreference } from './types.js';
 import type { StoppedFrom } from './timer-recovery.js';
@@ -329,7 +329,7 @@ function render(): void {
       <div class="header-actions"><button class="button outline header-new-entry" type="button" data-action="new-entry" title="Neuen Eintrag erstellen (N)">${icon('plus', 16)} <span>Eintrag</span><kbd class="shortcut-hint">N</kbd></button><button class="icon-button help-button" type="button" data-action="keyboard-help" title="Tastaturhilfe (?)" aria-label="Tastaturhilfe anzeigen">${icon('keyboard', 20)}</button><button class="icon-button settings-button" type="button" data-action="settings" aria-label="Einstellungen öffnen">${icon('settings', 21)}</button></div>
     </header>
     <main>${renderTimer(session)}${renderPending()}${renderHistory()}</main>
-    <footer class="footer"><span>Version 0.34.2</span></footer>
+    <footer class="footer"><span>Version 0.34.3</span></footer>
   </div>
   <div class="mini-timer" id="mini-timer" ${session && !heroVisible ? '' : 'hidden'}><div class="mini-inner"><div class="mini-left"><span class="mini-status"></span><strong data-mini-clock>${session ? formatClock(workingMilliseconds(session)) : '00:00:00'}</strong><span>${session?.status === 'paused' ? 'Pausiert' : 'Timer läuft'}</span></div><button type="button" class="mini-jump" data-action="jump-to-timer">Zum Timer ${icon('arrow', 15)}</button></div></div>`;
   visibilityObserver?.disconnect();
@@ -468,8 +468,8 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     </div>
     <div class="editor-footer"><p class="editor-requirements" id="editor-requirements" role="status" aria-live="polite"></p>
       <div class="modal-actions">
-        <button type="button" class="button secondary" data-action="close-editor">${isManual ? 'Abbrechen' : canReturnToTimer ? 'Zurück' : session.status === 'completed' ? 'Schließen' : 'Später'}${!isManual && !canReturnToTimer && session.status === 'pending' ? ' <kbd class="shortcut-hint" data-shortcut-later hidden>Ctrl+Enter</kbd>' : ''}</button>
-        ${canReturnToTimer ? '<button type="button" class="button secondary" data-action="defer-editor">Später <kbd class="shortcut-hint" data-shortcut-later hidden>Ctrl+Enter</kbd></button>' : ''}
+        <button type="button" class="button secondary" data-action="close-editor">${isManual ? 'Abbrechen' : canReturnToTimer ? 'Zurück' : session.status === 'completed' ? 'Schließen' : 'Abbrechen'}</button>
+        ${session.status === 'pending' && !isManual ? '<button type="button" class="button secondary" data-action="defer-editor">Später <kbd class="shortcut-hint" data-shortcut-later hidden>Ctrl+Enter</kbd></button>' : ''}
         <button type="submit" class="button primary">${isManual || session.status === 'completed' ? 'Speichern' : 'Abschließen'} <kbd class="shortcut-hint" data-shortcut-finish>Ctrl+Enter</kbd></button>
       </div></div>
   </form>`;
@@ -480,7 +480,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   editorDialog.addEventListener('close', () => {
     if (!canReturnToTimer || documentationSaved || documentationDeferred) {
       if (stoppedPreviewSessionId === session.id) stoppedPreviewSessionId = null;
-      // Deferring does not save the entry, so refresh the view explicitly.
+      // The deferred entry was saved; refresh all visible values.
       if (documentationDeferred) void refresh();
       return;
     }
@@ -509,12 +509,6 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   editorDialog.addEventListener('close', () => {
     editorDialog.removeEventListener('cancel', preventCancelDuringSave);
   }, { once: true });
-  form.querySelector<HTMLButtonElement>('button[data-action="defer-editor"]')?.addEventListener('click', () => {
-    if (busy) return;
-    documentationDeferred = true;
-    editorDialog.close();
-    toast('Eintrag kann später ergänzt werden.');
-  });
   const categoryField = form.querySelector<HTMLInputElement>('#category')!;
   const categorySearch = form.querySelector<HTMLInputElement>('#category-search')!;
   const descriptionField = form.querySelector<HTMLTextAreaElement>('#description')!;
@@ -884,6 +878,44 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   });
   descriptionField.addEventListener('input', updateDocumentationFeedback);
   categorySearch.addEventListener('input', refreshPicker);
+  /** Read the same fields for both Abschluss and "Später", including time and breaks. */
+  function editedValuesFromForm() {
+    const { start, end } = entryBounds();
+    return {
+      startedAt: start, stoppedAt: end,
+      pauses: pauseRows().map(readPauseRow),
+      category: categoryField.value,
+      description: descriptionField.value,
+    };
+  }
+  function focusInvalidTime(): void {
+    const invalidTime = form.querySelector<HTMLInputElement>('input[type="time"]:invalid, input[type="date"]:invalid');
+    if (livePauseError) form.querySelector<HTMLDetailsElement>('details.pause-editor')!.open = true;
+    focusDocumentationField(invalidTime ?? (livePauseError
+      ? pauseRows().find(row => row.classList.contains('pause-invalid'))?.querySelector<HTMLInputElement>('.pause-start') ?? startTimeField
+      : startTimeField));
+  }
+  async function deferEditor(): Promise<void> {
+    if (busy || isManual || editingSession.status !== 'pending') return;
+    // "Später" must accept missing documentation, but not invalid timestamps or pauses.
+    if (!syncPauseEditor() || !timesValid()) {
+      focusInvalidTime();
+      return;
+    }
+    busy = true;
+    try {
+      await saveDeferredSession(editingSession.id, editingSession.revision, editedValuesFromForm());
+      notifyChange();
+      documentationDeferred = true;
+      editorDialog.close();
+      await refresh();
+      toast('Eintrag kann später ergänzt werden.');
+    } catch (error) { showError(error); }
+    finally { busy = false; }
+  }
+  form.querySelector<HTMLButtonElement>('button[data-action="defer-editor"]')?.addEventListener('click', () => {
+    void deferEditor();
+  });
   form.addEventListener('submit', async (event) => {
     event.preventDefault();
     if (busy) return;
@@ -894,24 +926,13 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
       return;
     }
     if (!syncPauseEditor()) {
-      const invalidRow = pauseRows().find(row => row.classList.contains('pause-invalid'));
-      if (invalidRow) {
-        form.querySelector<HTMLDetailsElement>('details.pause-editor')!.open = true;
-        focusDocumentationField(invalidRow.querySelector<HTMLInputElement>('.pause-start')!);
-      } else form.querySelector<HTMLInputElement>('#entry-start-time')?.focus();
+      focusInvalidTime();
       return;
     }
     if (!form.reportValidity()) return;
     busy = true;
     try {
-      const start = fromDateAndClock(form.querySelector<HTMLInputElement>('#entry-start-date')!.value, form.querySelector<HTMLInputElement>('#entry-start-time')!.value, editingSession.startedAt);
-      const end = fromDateAndClock(form.querySelector<HTMLInputElement>('#entry-end-date')!.value, form.querySelector<HTMLInputElement>('#entry-end-time')!.value, editingSession.stoppedAt!);
-      const pauses = pauseRows().map(readPauseRow);
-      const editedValues = {
-        startedAt: start, stoppedAt: end, pauses,
-        category: form.querySelector<HTMLInputElement>('#category')!.value,
-        description: form.querySelector<HTMLTextAreaElement>('#description')!.value,
-      };
+      const editedValues = editedValuesFromForm();
       if (isManual) await createManualSession(editedValues);
       else await saveEditedSession(session.id, session.revision, editedValues);
       notifyChange();
@@ -930,19 +951,12 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     syncPauseEditor();
     const action = currentShortcutAction();
     if (action === 'invalid-time') {
-      const invalidTime = form.querySelector<HTMLInputElement>('input[type="time"]:invalid, input[type="date"]:invalid');
-      if (livePauseError) form.querySelector<HTMLDetailsElement>('details.pause-editor')!.open = true;
-      focusDocumentationField(invalidTime ?? (livePauseError
-        ? pauseRows().find(row => row.classList.contains('pause-invalid'))?.querySelector<HTMLInputElement>('.pause-start') ?? startTimeField
-        : startTimeField));
+      focusInvalidTime();
       return;
     }
     if (action === 'later') {
-      // Use the same controls as a mouse click: Stop-dialog "Später" keeps
-      // the stopped entry pending, while history "Später" simply closes it.
-      form.querySelector<HTMLButtonElement>(canReturnToTimer
-        ? 'button[data-action="defer-editor"]'
-        : '.modal-actions button[data-action="close-editor"]')?.click();
+      // Keyboard and mouse use the same saving path: partial form values persist.
+      void deferEditor();
       return;
     }
     if (action === 'incomplete' || finishButton.disabled) {
