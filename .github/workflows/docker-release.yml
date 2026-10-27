@@ -64,7 +64,8 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, publish-image]
+    # Static and portable release archives do not depend on multi-arch Docker publishing.
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -79,11 +80,17 @@ jobs:
         run: node -e 'if ("v" + require("./package.json").version !== process.env.RELEASE_TAG) process.exit(1)'
       - run: npm install --no-audit --no-fund
       - run: npm run build
+      - name: Build and verify single-file portable version
+        run: npm run build:portable && npm run test:portable
       - name: Archive standalone static files
         run: |
           cd dist
           zip -qr "${GITHUB_WORKSPACE}/zeitspur-${GITHUB_REF_NAME}-static.zip" .
+      - name: Archive portable HTML and instructions
+        run: |
+          cd portable
+          zip -q "${GITHUB_WORKSPACE}/zeitspur-${GITHUB_REF_NAME}-portable.zip" zeitspur.html README.txt
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" "zeitspur-${GITHUB_REF_NAME}-static.zip" --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" "zeitspur-${GITHUB_REF_NAME}-static.zip" "zeitspur-${GITHUB_REF_NAME}-portable.zip" --verify-tag --generate-notes
