@@ -19,6 +19,7 @@ assert.match(main, /const draft: Session = \{/);
 assert.match(main, /editSession\(draft\.id, undefined, draft\)/);
 assert.match(main, /if \(key === 'n'\)/);
 assert.match(main, /if \(key === '\?'\)/);
+assert.match(main, /data-action=\"start\"[^`]*<kbd class=\"shortcut-hint\">T<\/kbd>/, 'Start button displays shortcut T');
 assert.match(main, /const action = key === 't' /);
 assert.match(main, /key === 'p' && active/);
 assert.match(main, /key === 's' && active/);

@@ -314,7 +314,7 @@ function renderTimer(session: Session | undefined): string {
     <div class="timer-center"><div class="timer-display" data-clock>${displayed ? formatClock(workingMilliseconds(displayed)) : '00:00:00'}</div>
       ${displayed ? `<span class="timer-subtitle">Beginn ${formatTime(displayed.startedAt)}</span>` : ''}
     </div>
-    <div class="timer-actions">${preview ? `<span class="timer-stopped-hint">${tr('Gestoppt')}</span>` : !session ? `<button type="button" class="button primary big" data-action="start">${icon('play', 20)} Start</button>` :
+    <div class="timer-actions">${preview ? `<span class="timer-stopped-hint">${tr('Gestoppt')}</span>` : !session ? `<button type="button" class="button primary big" data-action="start">${icon('play', 20)} Start <kbd class="shortcut-hint">T</kbd></button>` :
       `<button type="button" class="button secondary big" data-action="${isPaused ? 'resume' : 'pause'}">${icon(isPaused ? 'play' : 'pause', 19)} ${isPaused ? 'Weiter' : 'Pause'} <kbd class="shortcut-hint">P</kbd></button>
        <button type="button" class="button stop big" data-action="stop">${icon('stop', 19)} Stop <kbd class="shortcut-hint">S</kbd></button>`}
     </div>
