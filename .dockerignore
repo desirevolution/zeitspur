@@ -8,3 +8,5 @@ coverage
 *.zip
 __pycache__
 *.pyc
+
+portable/

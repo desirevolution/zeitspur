@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import { readFileSync, statSync } from 'node:fs';
+import { Script } from 'node:vm';
+
+const html = readFileSync(new URL('../portable/zeitspur.html', import.meta.url), 'utf8');
+const readme = readFileSync(new URL('../portable/README.txt', import.meta.url), 'utf8');
+const scripts = [...html.matchAll(/<script(?:\s+[^>]*)?>([\s\S]*?)<\/script>/gi)];
+const styles = [...html.matchAll(/<style(?:\s+[^>]*)?>([\s\S]*?)<\/style>/gi)];
+assert.equal(scripts.length, 1, 'single inline JavaScript bundle');
+assert.equal(styles.length, 1, 'single inline CSS file');
+assert.doesNotMatch(html, /<(?:script|link)\b[^>]+(?:src|href)\s*=\s*['"](?:https?:|\.\/)/i, 'no extra runtime assets');
+assert.doesNotMatch(html, /<link\b[^>]+rel=['"](?:manifest|icon)['"]/i, 'no manifest or icon requests');
+assert.doesNotMatch(html, /\b(?:sw\.js|manifest\.webmanifest|serviceWorker\.register)\b/, 'no PWA startup');
+assert.match(html, /zeitspur-file-v1/, 'separate, stable portable IndexedDB name');
+assert.doesNotMatch(html, /zeitspur-file-poc-v1/, 'production portable uses no PoC DB name');
+assert.match(html, /zeitspur-file-range-choice-v1-/, 'portable settings are isolated');
+assert.match(html, /src\/main\.js/, 'embedded Zeitspur app entry');
+assert.ok(html.includes('GitHub') && html.includes('zeitspur'), 'full Zeitspur UI included');
+assert.ok(readme.includes('NICHT in der HTML-Datei'), 'instructions clarify external browser storage');
+assert.ok(statSync(new URL('../portable/zeitspur.html', import.meta.url)).size > 100_000, 'real application payload');
+new Script(scripts[0][1], { filename: 'portable-inline.js' });
+console.log('PASS: portable file is standalone, PWA-free, valid JavaScript, and uses stable isolated browser storage');

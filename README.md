@@ -19,6 +19,26 @@ The container exposes port 8080 and serves built static files using unprivileged
 
 The `:latest` image is published after the first version-tag release; the `:main` tag follows pushes to the default branch. Alternatively build the image locally with `docker build -t zeitspur .`.
 
+## Portable single-HTML download (`file://`)
+
+GitHub version-tag releases attach **two ZIP archives**:
+
+- `zeitspur-vX.Y.Z-static.zip` — the original installable PWA for a web server, Docker, or GitHub Pages.
+- `zeitspur-vX.Y.Z-portable.zip` — `zeitspur.html` plus `README.txt`; unzip and double-click the HTML file. **No server, network, service worker, or automatic app updates.**
+
+Generate and verify the portable artifact locally:
+
+```bash
+npm install
+npm run build:portable
+npm run test:portable
+# Open portable/zeitspur.html directly in the browser (file://)
+```
+
+The portable edition is built from the **same TypeScript and CSS sources** as the PWA, without maintaining a separate UI. Its browser storage is deliberately isolated (`zeitspur-file-v1`) and the database name remains stable across future builds. The earlier *PoC* used a different database name. **Transfer existing data using JSON backup/import.** IndexedDB belongs to the **browser profile + file origin**, not to the HTML file, and persistence/identity for `file://` can vary across browsers or when the file is moved/renamed. Keep a backup before replacing or relocating the file. CSV and JSON formats are unchanged.
+
+**Security/update scope:** No auto-updates means an older local file remains in use until manually replaced; it does not prevent browser updates and does not stop a user from voluntarily opening the repository link. Only run HTML downloaded from a source you trust.
+
 ## Development
 
 Requires Node.js 22+ and npm:
@@ -28,7 +48,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173`. For a production build run `npm run build`. To run the same validations as GitHub Actions use `npm run test:ci`. It first runs `build:standalone` to create the unbundled `dist/assets/*.js` modules required by the smoke tests, then runs the logic/share/PWA/repository tests, and finally runs the production Vite build. Running `npm run test:logic` directly **after** `npm run build` does not work because Vite bundles the modules instead of retaining those test paths. No other GitHub workflow needs to run beforehand.
+Open `http://localhost:5173`. For a production build run `npm run build`. To run the same validations as GitHub Actions use `npm run test:ci`. It first runs `build:standalone` to create the unbundled `dist/assets/*.js` modules required by the smoke tests, then runs the logic/share/PWA/repository tests, then verifies the portable HTML build, and finally runs the production Vite build. Running `npm run test:logic` directly **after** `npm run build` does not work because Vite bundles the modules instead of retaining those test paths. No other GitHub workflow needs to run beforehand.
 
 Or with a Docker development container and live reload:
 
@@ -43,19 +63,61 @@ This mounts the project into the container, exposes port 5173, and stores depend
 | Workflow | Trigger | Result |
 | --- | --- | --- |
 | `.github/workflows/ci.yml` | Pull requests, non-main branches | Typecheck, build, smoke tests |
-| `.github/workflows/docker-release.yml` | Push to `main`, Git tags `v*`, manual | Test, publish `ghcr.io/desirevolution/zeitspur` for `linux/amd64` and `linux/arm64`; on version tags also publish a GitHub Release with a ready-to-host static ZIP |
+| `.github/workflows/docker-release.yml` | Push to `main`, Git tags `v*`, manual | Test, publish `ghcr.io/desirevolution/zeitspur` for `linux/amd64` and `linux/arm64`; on version tags also publish a GitHub Release with static PWA and portable single-HTML ZIPs |
 | `.github/workflows/pages.yml` | Push to `main`, manual | Build and deploy the PWA to GitHub Pages |
 
-Docker tags: `main` on the main branch; version tags (`0.32.0`, `0.32`), and `latest` on version-tag releases; Git commit SHA tags are also published.
+Docker tags: `main` on the main branch; version tags (`0.33.0`, `0.33`), and `latest` on version-tag releases; Git commit SHA tags are also published.
 
-**Initial GitHub setup:** Copy these repository files into a clone of `https://github.com/desirevolution/zeitspur`, commit, and push to `main` (see below). In **Settings → Pages → Build and deployment**, select **GitHub Actions**. Allow GitHub Actions to create packages and releases, and configure workflow write access where your organization requires it. The workflows authenticate to GHCR with `GITHUB_TOKEN`; no registry password is required. **After the first GHCR publication, change package visibility to Public** if end users should pull the image without logging in. For the first GitHub release, synchronize `package.json`'s version and push a tag such as `v0.32.0`.
+**Initial GitHub setup:** Copy these repository files into a clone of `https://github.com/desirevolution/zeitspur`, commit, and push to `main` (see below). In **Settings → Pages → Build and deployment**, select **GitHub Actions**. Allow GitHub Actions to create packages and releases, and configure workflow write access where your organization requires it. The workflows authenticate to GHCR with `GITHUB_TOKEN`; no registry password is required. **After the first GHCR publication, change package visibility to Public** if end users should pull the image without logging in. For the first GitHub release, synchronize `package.json`'s version and push a tag such as `v0.33.0`.
 
 ```bash
-git tag v0.32.0
-git push origin v0.32.0
+git tag v0.33.0
+git push origin v0.33.0
 ```
 
 The Vite build uses **relative paths (`base: './'`)**, the manifest uses relative URLs, and the service worker is registered relative to the deployed app directory. This supports both `/` on your own domain and `/zeitspur/` on GitHub Pages. Each origin has **independent IndexedDB data**; changing between localhost, Pages, and a self-hosted domain does **not** sync data. Transfer sessions by JSON backup/restore. Browsers also need the correct HTTPS context for offline PWA functionality.
+
+## Version 0.33 changes (portable-release packaging)
+
+- `build:portable` produces a single-file HTML distribution from the existing app sources.
+- `test:portable` checks that all scripts/styles are embedded, no PWA files are referenced, and the portable database name is stable.
+- The tag release workflow uploads both static and portable ZIPs.
+- The portable release is independent of the multi-arch image-publishing job.
+
+## Version 0.32 changes
+
+- Stop freezes the visible timer at its persisted duration behind the documentation dialog; the counter no longer resets to 00:00:00 until the dialog has been completed or deferred.
+- The dialog opened directly by Stop has three equal-height buttons: **Zurück**, **Später**, **Abschließen**. Close and Escape act like Zurück. Später preserves the stopped entry for later documentation.
+- Returning to the timer retains the v0.31 undo-stop behavior; the dialog time is included when the previously running timer resumes.
+
+## Version 0.31 changes
+
+- In the **Document time** dialog opened immediately after **Stop**, **Back to timer**
+  (also X / Escape) undoes Stop. The original timer ID and recorded intervals are
+  retained. A running timer continues counting (including time spent in the dialog);
+  a paused timer stays paused.
+- **Document later** explicitly leaves the stopped entry unfinished so it can be
+  completed later from the list; **Complete** saves the documentation as before.
+- If another tab has started a new timer or modified the stopped entry, the app
+  does not overwrite those changes: recovery fails safely and leaves the entry open.
+- Ordinary entry editing remains unchanged. No IndexedDB schema or backup migration.
+
+## Version 0.30 changes
+
+- Disable **Add break** whenever no positive time slot of at least one full minute remains (also when the work duration is zero or existing breaks cover the entire interval).
+- The brand icon in the header opens the [Zeitspur repository](https://github.com/desirevolution/zeitspur) in a new tab, with a keyboard-accessible link and localized accessible label.
+- Production/development Dockerfiles and Compose configurations; unprivileged Nginx server.
+- CI, multi-arch GHCR image publishing, versioned GitHub releases, and GitHub Pages deployment workflows.
+- Browser storage schema and CSV/JSON data formats remain unchanged.
+
+Historical release notes and functional details: [`docs/CHANGELOG-ARCHIVE.md`](docs/CHANGELOG-ARCHIVE.md).
+
+## Storage, privacy, backups
+
+- All sessions, preferences and categories remain local to the user's browser (`IndexedDB`). There is no server-side API, login, server backup or multi-device synchronization.
+- Exported CSVs use English snake_case column names, local timestamps without offset and English date-range filenames. JSON backup retains unambiguous time data.
+- **Back up before clearing browser data or changing the hosting URL.** Docker volumes do not protect local IndexedDB data.
+- No public software license has been selected yet. Add one explicitly before inviting third-party reuse.
 
 ## Publishing the prepared repository
 
@@ -66,7 +128,7 @@ git clone https://github.com/desirevolution/zeitspur.git
 # Copy the contents of this source archive into the cloned folder (including .github/).
 cd zeitspur
 git add -A
-git commit -m "Fix returning from time documentation to the timer"
+git commit -m "Add single-file portable ZIP to version-tag releases"
 git push origin main
 ```
 

@@ -11,3 +11,6 @@ coverage/
 .idea/
 __pycache__/
 *.pyc
+
+# Generated self-contained, local HTML build
+portable/
