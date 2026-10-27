@@ -47,7 +47,7 @@ for (const name of entries) {
   if (name === 'range-preferences.ts') code = replaceRequired(code, "const PREFIX = 'zeitspur-range-choice-v1-';", dbNames["const PREFIX = 'zeitspur-range-choice-v1-';"], 'range preference prefix');
   if (name === 'main.ts') {
     code = replaceRequired(code, "new BroadcastChannel('zeitspur-events-v1')", dbNames["new BroadcastChannel('zeitspur-events-v1')"], 'BroadcastChannel name');
-    code = code.replace(/<span>Version (\d+\.\d+)<\/span>/, '<span>Version $1 · Portable</span>');
+    code = code.replace(/<span>Version (\d+\.\d+(?:\.\d+)?)<\/span>/, '<span>Version $1 · Portable</span>');
   }
   const built = ts.transpileModule(code, {
     fileName: name,

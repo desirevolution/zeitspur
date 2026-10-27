@@ -1,6 +1,6 @@
 {
   "name": "zeitspur",
-  "version": "0.34.1",
+  "version": "0.34.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "build:standalone": "node scripts/build-standalone.mjs",
     "typecheck": "tsc --noEmit",
-    "test:logic": "TZ=Europe/Berlin node tests/history-groups-smoke.mjs && TZ=Europe/Berlin node tests/timer-recovery-smoke.mjs && TZ=Europe/Berlin node tests/documentation-stop-ui-smoke.mjs && TZ=Europe/Berlin node tests/time-smoke.mjs && TZ=Europe/Berlin node tests/features-smoke.mjs && TZ=Europe/Berlin node tests/ranges-smoke.mjs && TZ=Europe/Berlin node tests/csv-format-smoke.mjs && TZ=Europe/Berlin node tests/csv-filename-smoke.mjs && TZ=Asia/Kathmandu node tests/csv-local-timezone-smoke.mjs && node tests/range-preferences-smoke.mjs && node tests/category-picker-smoke.mjs && node tests/editor-validation-smoke.mjs && node tests/time-editor-smoke.mjs && node tests/mobile-category-smoke.mjs && node tests/i18n-smoke.mjs && node tests/keyboard-ux-smoke.mjs",
+    "test:logic": "TZ=Europe/Berlin node tests/history-groups-smoke.mjs && TZ=Europe/Berlin node tests/timer-recovery-smoke.mjs && TZ=Europe/Berlin node tests/documentation-stop-ui-smoke.mjs && TZ=Europe/Berlin node tests/time-smoke.mjs && TZ=Europe/Berlin node tests/features-smoke.mjs && TZ=Europe/Berlin node tests/ranges-smoke.mjs && TZ=Europe/Berlin node tests/csv-format-smoke.mjs && TZ=Europe/Berlin node tests/csv-filename-smoke.mjs && TZ=Asia/Kathmandu node tests/csv-local-timezone-smoke.mjs && node tests/range-preferences-smoke.mjs && node tests/category-picker-smoke.mjs && node tests/editor-validation-smoke.mjs && node tests/time-editor-smoke.mjs && node tests/mobile-category-smoke.mjs && node tests/i18n-smoke.mjs && node tests/keyboard-ux-smoke.mjs && node tests/editor-shortcuts-smoke.mjs",
     "test:pwa": "node tests/pwa-update-smoke.mjs",
     "test:share": "node tests/file-share-smoke.mjs",
     "test:github": "node tests/github-package-smoke.mjs && node tests/release-assets-smoke.mjs",

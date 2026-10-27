@@ -8,6 +8,7 @@ import { validateEntryOrder, timeOneMinuteBefore, timeOneMinuteAfter } from './t
 import type { PausePeriod } from './pause-editor.js';
 import { categoryKey, pickerCategories } from './categories.js';
 import { missingDocumentationFields, documentationHint } from './editor-validation.js';
+import { editorShortcutAction } from './editor-shortcuts.js';
 import { createBackup, createCsv, csvFileName, parseBackup } from './transfers.js';
 import { BACKUP_SHARE_FORMATS, CSV_SHARE_FORMATS, chooseShareableFile, isMobileSharePlatform } from './file-share.js';
 import { deletionImpact, selectedRange } from './ranges.js';
@@ -328,7 +329,7 @@ function render(): void {
       <div class="header-actions"><button class="button outline header-new-entry" type="button" data-action="new-entry" title="Neuen Eintrag erstellen (N)">${icon('plus', 16)} <span>Eintrag</span><kbd class="shortcut-hint">N</kbd></button><button class="icon-button help-button" type="button" data-action="keyboard-help" title="Tastaturhilfe (?)" aria-label="Tastaturhilfe anzeigen">${icon('keyboard', 20)}</button><button class="icon-button settings-button" type="button" data-action="settings" aria-label="Einstellungen öffnen">${icon('settings', 21)}</button></div>
     </header>
     <main>${renderTimer(session)}${renderPending()}${renderHistory()}</main>
-    <footer class="footer"><span>Version 0.34</span></footer>
+    <footer class="footer"><span>Version 0.34.2</span></footer>
   </div>
   <div class="mini-timer" id="mini-timer" ${session && !heroVisible ? '' : 'hidden'}><div class="mini-inner"><div class="mini-left"><span class="mini-status"></span><strong data-mini-clock>${session ? formatClock(workingMilliseconds(session)) : '00:00:00'}</strong><span>${session?.status === 'paused' ? 'Pausiert' : 'Timer läuft'}</span></div><button type="button" class="mini-jump" data-action="jump-to-timer">Zum Timer ${icon('arrow', 15)}</button></div></div>`;
   visibilityObserver?.disconnect();
@@ -467,9 +468,9 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     </div>
     <div class="editor-footer"><p class="editor-requirements" id="editor-requirements" role="status" aria-live="polite"></p>
       <div class="modal-actions">
-        <button type="button" class="button secondary" data-action="close-editor">${isManual ? 'Abbrechen' : canReturnToTimer ? 'Zurück' : session.status === 'completed' ? 'Schließen' : 'Später'}</button>
-        ${canReturnToTimer ? '<button type="button" class="button secondary" data-action="defer-editor">Später</button>' : ''}
-        <button type="submit" class="button primary">${isManual || session.status === 'completed' ? 'Speichern' : 'Abschließen'} <kbd class="shortcut-hint">Ctrl+Enter</kbd></button>
+        <button type="button" class="button secondary" data-action="close-editor">${isManual ? 'Abbrechen' : canReturnToTimer ? 'Zurück' : session.status === 'completed' ? 'Schließen' : 'Später'}${!isManual && !canReturnToTimer && session.status === 'pending' ? ' <kbd class="shortcut-hint" data-shortcut-later hidden>Ctrl+Enter</kbd>' : ''}</button>
+        ${canReturnToTimer ? '<button type="button" class="button secondary" data-action="defer-editor">Später <kbd class="shortcut-hint" data-shortcut-later hidden>Ctrl+Enter</kbd></button>' : ''}
+        <button type="submit" class="button primary">${isManual || session.status === 'completed' ? 'Speichern' : 'Abschließen'} <kbd class="shortcut-hint" data-shortcut-finish>Ctrl+Enter</kbd></button>
       </div></div>
   </form>`;
   translateUi(editorDialog);
@@ -552,9 +553,27 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   let attemptedCompletion = false;
   let liveEntryError = '';
   let livePauseError = false;
+  function timesValid(): boolean {
+    // Documentation fields may be empty while "Später" is available, but all
+    // entry and pause dates/times must still be valid for the shortcut.
+    const timeControls = form.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
+      'input[type="date"], input[type="time"], select.pause-day',
+    );
+    return !liveEntryError && !livePauseError && [...timeControls].every((field) => field.checkValidity());
+  }
+  function currentShortcutAction() {
+    const mode = isManual ? 'manual' : editingSession.status === 'completed' ? 'completed' : 'pending';
+    const complete = missingDocumentationFields(categoryField.value, descriptionField.value).length === 0;
+    return editorShortcutAction(mode, complete, timesValid());
+  }
   function updateFinishState(): void {
     const complete = missingDocumentationFields(categoryField.value, descriptionField.value).length === 0;
     finishButton.disabled = !complete || Boolean(liveEntryError || livePauseError) || !form.checkValidity();
+    const action = currentShortcutAction();
+    const finishHint = form.querySelector<HTMLElement>('[data-shortcut-finish]');
+    if (finishHint) finishHint.hidden = action !== 'finish' || finishButton.disabled;
+    const laterHint = form.querySelector<HTMLElement>('[data-shortcut-later]');
+    if (laterHint) laterHint.hidden = action !== 'later';
   }
   function updateEditorFooter(): void {
     const hint = documentationHint(categoryField.value, descriptionField.value);
@@ -839,7 +858,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   });
   // Keyboard users can advance directly from a typed category to the description.
   categoryField.addEventListener('keydown', (event) => {
-    if (event.isComposing) return;
+    if (event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       const options = categoryButtons();
       if (options.length) {
@@ -907,14 +926,28 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.isComposing) return;
     event.preventDefault();
     if (busy) return;
-    if (finishButton.disabled) {
+    // Do not defer an invalid interval. First expose the existing time error.
+    syncPauseEditor();
+    const action = currentShortcutAction();
+    if (action === 'invalid-time') {
+      const invalidTime = form.querySelector<HTMLInputElement>('input[type="time"]:invalid, input[type="date"]:invalid');
+      if (livePauseError) form.querySelector<HTMLDetailsElement>('details.pause-editor')!.open = true;
+      focusDocumentationField(invalidTime ?? (livePauseError
+        ? pauseRows().find(row => row.classList.contains('pause-invalid'))?.querySelector<HTMLInputElement>('.pause-start') ?? startTimeField
+        : startTimeField));
+      return;
+    }
+    if (action === 'later') {
+      // Use the same controls as a mouse click: Stop-dialog "Später" keeps
+      // the stopped entry pending, while history "Später" simply closes it.
+      form.querySelector<HTMLButtonElement>(canReturnToTimer
+        ? 'button[data-action="defer-editor"]'
+        : '.modal-actions button[data-action="close-editor"]')?.click();
+      return;
+    }
+    if (action === 'incomplete' || finishButton.disabled) {
       const missing = missingDocumentationFields(categoryField.value, descriptionField.value);
       if (missing.length) focusDocumentationField(missing[0] === 'category' ? categoryField : descriptionField);
-      else if (liveEntryError) focusDocumentationField(startTimeField);
-      else if (livePauseError) {
-        form.querySelector<HTMLDetailsElement>('details.pause-editor')!.open = true;
-        focusDocumentationField(pauseRows().find(row => row.classList.contains('pause-invalid'))?.querySelector<HTMLInputElement>('.pause-start') ?? startTimeField);
-      }
       return;
     }
     form.requestSubmit(finishButton);
@@ -946,7 +979,7 @@ function showKeyboardHelp(): void {
     ['T', 'Timer starten'], ['P', 'Timer pausieren / fortsetzen'], ['S', 'Timer stoppen'],
     ['N', 'Neuen Eintrag erstellen'], ['?', 'Tastaturhilfe anzeigen'],
     ['Tab', 'Nächstes Feld'], ['↑ / ↓', 'Kategorie auswählen'],
-    ['Enter', 'Kategorie übernehmen'], ['Ctrl / ⌘ + Enter', 'Eintrag speichern / abschließen'],
+    ['Enter', 'Kategorie übernehmen'], ['Ctrl / ⌘ + Enter', 'Abschließen bei vollständigen Angaben, sonst Später (offene Einträge)'],
     ['Esc', 'Dialog schließen'],
   ];
   helpDialog.innerHTML = `<div class="modal-content shortcut-help-content">

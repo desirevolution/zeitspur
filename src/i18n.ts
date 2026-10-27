@@ -55,6 +55,7 @@ const EN: Record<string, string> = {
   'Kategorie auswählen': 'Select category',
   'Kategorie übernehmen': 'Use category',
   'Eintrag speichern / abschließen': 'Save / complete entry',
+  'Abschließen bei vollständigen Angaben, sonst Später (offene Einträge)': 'Complete when all fields are filled, otherwise Later (unfinished entries)',
   'Dialog schließen': 'Close dialog',
   'Offene Einträge': 'Unfinished entries',
   'Ergänzen': 'Complete',

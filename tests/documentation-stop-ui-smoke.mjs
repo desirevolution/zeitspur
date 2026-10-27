@@ -21,7 +21,7 @@ assert.match(main, /stoppedPreviewSession\(\) \? formatClock\(workingMillisecond
   'Periodic clock updater must not clear the preview');
 assert.match(main, /data-action="close-editor">\$\{isManual \? 'Abbrechen' : canReturnToTimer \? 'Zurück' : session\.status === 'completed' \? 'Schließen' : 'Später'\}/,
   'Stop editor exposes Zurück button');
-assert.match(main, /canReturnToTimer \? '<button type="button" class="button secondary" data-action="defer-editor">Später<\/button>'/,
+assert.match(main, /canReturnToTimer \? '<button type="button" class="button secondary" data-action="defer-editor">Später <kbd class="shortcut-hint" data-shortcut-later hidden>Ctrl\+Enter<\/kbd><\/button>'/,
   'Stop editor exposes Später as a button rather than a text link');
 assert.match(main, /<button type="submit" class="button primary">\$\{isManual \|\| session\.status === 'completed' \? 'Speichern' : 'Abschließen'\}/,
   'Stop editor exposes Abschließen as primary button');

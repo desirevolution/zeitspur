@@ -533,3 +533,6 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line); bo
   .site-header { gap: 8px; }
 }
 .pending-content .pending-missing { color: var(--warning); }
+
+/* A visually disabled shortcut must not reappear through kbd display rules. */
+[data-shortcut-later][hidden], [data-shortcut-finish][hidden] { display: none !important; }
