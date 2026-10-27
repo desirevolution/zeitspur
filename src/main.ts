@@ -5,6 +5,7 @@ import type { StoppedFrom } from './timer-recovery.js';
 import { getPauses } from './records.js';
 import { localPauseDate, localPauseTime, parsePausePoint, pauseDayOptions, suggestPause, validatePausePeriods } from './pause-editor.js';
 import { validateEntryOrder, timeOneMinuteBefore, timeOneMinuteAfter } from './time-editor-validation.js';
+import { normalizeClock, shiftClock, addCalendarDay, dayChoice, durationMinutes, durationValue } from './clock-input.js';
 import type { PausePeriod } from './pause-editor.js';
 import { categoryKey, pickerCategories } from './categories.js';
 import { missingDocumentationFields, documentationHint } from './editor-validation.js';
@@ -329,7 +330,7 @@ function render(): void {
       <div class="header-actions"><button class="button outline header-new-entry" type="button" data-action="new-entry" title="Neuen Eintrag erstellen (N)">${icon('plus', 16)} <span>Eintrag</span><kbd class="shortcut-hint">N</kbd></button><button class="icon-button help-button" type="button" data-action="keyboard-help" title="Tastaturhilfe (?)" aria-label="Tastaturhilfe anzeigen">${icon('keyboard', 20)}</button><button class="icon-button settings-button" type="button" data-action="settings" aria-label="Einstellungen öffnen">${icon('settings', 21)}</button></div>
     </header>
     <main>${renderTimer(session)}${renderPending()}${renderHistory()}</main>
-    <footer class="footer"><span>Version 0.34.3</span></footer>
+    <footer class="footer"><span>Version 0.35.0</span></footer>
   </div>
   <div class="mini-timer" id="mini-timer" ${session && !heroVisible ? '' : 'hidden'}><div class="mini-inner"><div class="mini-left"><span class="mini-status"></span><strong data-mini-clock>${session ? formatClock(workingMilliseconds(session)) : '00:00:00'}</strong><span>${session?.status === 'paused' ? 'Pausiert' : 'Timer läuft'}</span></div><button type="button" class="mini-jump" data-action="jump-to-timer">Zum Timer ${icon('arrow', 15)}</button></div></div>`;
   visibilityObserver?.disconnect();
@@ -424,29 +425,63 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   let documentationSaved = false;
   let documentationDeferred = false;
   const list = categorySuggestions();
+  const timeControl = (id: string, value: string, aria: string, extraClass = ''): string => `<span class="clock-control">
+    <input ${id ? `id="${id}"` : ""} class="clock-text ${extraClass}" type="text" inputmode="numeric" pattern="([01][0-9]|2[0-3]):[0-5][0-9]" autocomplete="off" maxlength="5" required aria-label="${aria}" value="${escapeHtml(value)}" />
+    <button type="button" class="clock-picker-button" data-action="pick-time" aria-label="${aria}: ${tr('Uhrzeit auswählen')}" title="${tr('Uhrzeit auswählen')}">${icon('clock', 17)}</button>
+    <input class="clock-native" type="time" step="60" tabindex="-1" aria-hidden="true" disabled value="${escapeHtml(value)}" />
+  </span>`;
   const pauseMarkup = (start: number, end: number, originalStart = -1, originalEnd = -1): string => `<div class="pause-row" data-pause-row data-original-start="${originalStart}" data-original-end="${originalEnd}">
     <div class="pause-row-head"><span class="pause-row-title">${tr('Pause')}</span><button type="button" class="icon-button" data-action="remove-pause" aria-label="${tr('Pause entfernen')}" title="${tr('Pause entfernen')}">${icon('trash', 17)}</button></div>
     <div class="pause-fields">
-      <div class="pause-point"><label>${tr('Von')}<span class="pause-day-wrap" hidden></span><input class="pause-start" type="time" step="60" value="${localPauseTime(start)}" required></label></div>
-      <div class="pause-point"><label>${tr('Bis')}<span class="pause-day-wrap" hidden></span><input class="pause-end" type="time" step="60" value="${localPauseTime(end)}" required></label></div>
+      <div class="pause-point"><label>${tr('Von')}<span class="pause-day-wrap" hidden></span></label>${timeControl('', localPauseTime(start), tr('Pausenbeginn'), 'pause-start')}</div>
+      <div class="pause-point"><label>${tr('Bis')}<span class="pause-day-wrap" hidden></span></label>${timeControl('', localPauseTime(end), tr('Pausenende'), 'pause-end')}</div>
     </div>
     <p class="pause-row-error" role="status" hidden></p>
     <input type="hidden" class="pause-start-date" value="${localPauseDate(start)}">
     <input type="hidden" class="pause-end-date" value="${localPauseDate(end)}">
   </div>`;
+  const startLocal = toLocalInput(session.startedAt);
+  const endLocal = toLocalInput(session.stoppedAt ?? session.startedAt);
+  const startDay = startLocal.slice(0, 10);
+  const endDay = endLocal.slice(0, 10);
+  const initialEndChoice = dayChoice(startDay, endDay);
   editorDialog.innerHTML = `<form id="editor-form" class="modal-content" novalidate>
     <div class="modal-top"><div><h2 id="editor-title">${isManual ? 'Neuer Zeiteintrag' : session.status === 'completed' ? 'Eintrag bearbeiten' : 'Zeit dokumentieren'}</h2></div><button type="button" class="icon-button" data-action="close-editor" aria-label="${canReturnToTimer ? tr('Zurück zum Timer') : tr('Schließen')}">${icon('close', 20)}</button></div>
     <div class="modal-body" id="editor-scroll-region">
-    <div class="modal-summary"><span>${icon('clock', 18)} ${formatDuration(workingMilliseconds(session))}</span><span>${escapeHtml(new Intl.DateTimeFormat(intlLocale(), { weekday: 'short', day: 'numeric', month: 'short' }).format(session.startedAt))}</span></div>
-    <div class="field-grid">
-      <label class="field"><span>Beginn (Uhrzeit)</span><input id="entry-start-time" type="time" step="60" required aria-describedby="entry-range-error" value="${toLocalInput(session.startedAt).slice(11, 16)}" /></label>
-      <label class="field"><span>Ende (Uhrzeit)</span><input id="entry-end-time" type="time" step="60" required aria-describedby="entry-range-error" value="${toLocalInput(session.stoppedAt ?? session.startedAt).slice(11, 16)}" /></label>
-    </div>
-    <p id="entry-range-error" class="entry-range-error" role="status" aria-live="polite" hidden></p>
-    <details class="date-editor"><summary>Datum ändern <span class="date-summary">(nur bei Bedarf)</span></summary><div class="field-grid">
-      <label class="field"><span>Startdatum</span><input id="entry-start-date" type="date" required value="${toLocalInput(session.startedAt).split('T')[0]}"></label>
-      <label class="field"><span>Enddatum</span><input id="entry-end-date" type="date" required value="${toLocalInput(session.stoppedAt ?? session.startedAt).split('T')[0]}"></label>
-    </div></details>
+    <section class="period-editor" aria-label="${tr('Arbeitszeit')}">
+      <div class="period-heading"><h3>${tr('Arbeitszeit')}</h3><span class="period-subtitle">${tr('Datum und Uhrzeit')}</span></div>
+      <label class="field period-date"><span>${tr('Datum')}</span><input id="entry-start-date" type="date" required value="${startDay}"></label>
+      <fieldset class="period-mode"><legend>${tr('Eingabe')}</legend>
+        <label><input type="radio" name="period-mode" value="end" checked><span>${tr('Von / Bis')}</span></label>
+        <label><input type="radio" name="period-mode" value="duration"><span>${tr('Von / Dauer')}</span></label>
+      </fieldset>
+      <div class="period-clocks">
+        <div class="field period-clock"><label for="entry-start-time">${tr('Von')}</label>${timeControl('entry-start-time', startLocal.slice(11, 16), tr('Beginn'))}</div>
+        <div class="field period-clock" id="period-end-wrap"><label for="entry-end-time">${tr('Bis')}</label>${timeControl('entry-end-time', endLocal.slice(11, 16), tr('Ende'))}</div>
+        <label class="field period-duration" id="period-duration-wrap" hidden><span>${tr('Dauer')} (${tr('Minuten')})</span><input id="entry-duration" type="text" inputmode="numeric" pattern="[0-9]+" autocomplete="off" value="${Math.max(0, durationMinutes(session.startedAt, session.stoppedAt ?? session.startedAt))}" aria-describedby="period-duration-hint"></label>
+      </div>
+      <p id="period-duration-hint" class="period-hint" hidden>${tr('Dauer vor Abzug der Pausen.')}</p>
+      <div class="period-ending" id="period-ending"><label for="entry-end-day">${tr('Ende am')}</label>
+        <select id="entry-end-day" aria-label="${tr('Enddatum')}">
+          <option value="same" ${initialEndChoice === 'same' ? 'selected' : ''}>${tr('Gleichen Tag')}</option>
+          <option value="next" ${initialEndChoice === 'next' ? 'selected' : ''}>${tr('Folgetag')}</option>
+          <option value="other" ${initialEndChoice === 'other' ? 'selected' : ''}>${tr('Anderes Datum')}</option>
+        </select>
+        <label class="field period-other-date" id="period-other-date" ${initialEndChoice !== 'other' ? 'hidden' : ''}><span>${tr('Enddatum')}</span><input id="entry-end-date" type="date" required value="${endDay}"></label>
+      </div>
+      <p id="entry-range-error" class="entry-range-error" role="status" aria-live="polite" hidden></p>
+    </section>
+    <section class="period-pauses" aria-label="${tr('Pausen')}">
+      <div class="period-heading"><h3>${tr('Pausen')}</h3><button type="button" class="button outline small" data-action="add-pause">${icon('plus', 15)} ${tr('Pause hinzufügen')}</button></div>
+      <p class="period-hint">${tr('Pausen liegen innerhalb der Arbeitszeit und dürfen sich nicht überschneiden.')}</p>
+      <p class="pause-scope" id="pause-scope" aria-live="polite" hidden></p>
+      <div id="pause-list">${getPauses(session).map(p => pauseMarkup(p.start, p.end, p.start, p.end)).join('')}</div>
+      <div class="period-totals" aria-live="polite">
+        <div><span>${tr('Gesamt')}</span><strong id="period-gross">–</strong></div>
+        <div><span>${tr('Pausen')}</span><strong id="period-break-total">–</strong></div>
+        <div><span>${tr('Arbeitszeit')}</span><strong id="period-net">–</strong></div>
+      </div>
+    </section>
     <label class="field"><span>Kategorie <span class="required">*</span></span><input id="category" name="category" role="combobox" aria-expanded="true" aria-autocomplete="list" aria-controls="category-options" autocomplete="off" maxlength="90" required aria-describedby="category-error" placeholder="Kategorie eingeben oder auswählen" value="${escapeHtml(session.category ?? '')}" /><span id="category-error" class="field-error" hidden>Kategorie fehlt.</span></label>
     <div class="category-picker" id="category-picker">
       <div class="category-picker-head"><span id="category-list-label">Zuletzt verwendet</span><span class="category-count" id="category-count">${list.length} Kategorien</span></div>
@@ -460,11 +495,6 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
       </button>
     </div>
     <label class="field"><span>Beschreibung <span class="required">*</span></span><textarea id="description" name="description" rows="4" maxlength="2000" required aria-describedby="description-error" placeholder="Was hast du gemacht?">${escapeHtml(session.description ?? '')}</textarea><span id="description-error" class="field-error" hidden>Beschreibung fehlt.</span></label>
-    <details class="pause-editor"><summary id="pause-summary">Pausen bearbeiten (${getPauses(session).length})</summary>
-    <p class="modal-hint">Pausen werden von der gesamten Zeit abgezogen. Sie dürfen sich nicht überschneiden.</p>
-    <p class="pause-scope" id="pause-scope" aria-live="polite"></p>
-    <div id="pause-list">${getPauses(session).map(p => pauseMarkup(p.start, p.end, p.start, p.end)).join('')}</div>
-    <button type="button" class="button outline small" data-action="add-pause">+ Pause hinzufügen</button></details>
     </div>
     <div class="editor-footer"><p class="editor-requirements" id="editor-requirements" role="status" aria-live="polite"></p>
       <div class="modal-actions">
@@ -551,7 +581,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     // Documentation fields may be empty while "Später" is available, but all
     // entry and pause dates/times must still be valid for the shortcut.
     const timeControls = form.querySelectorAll<HTMLInputElement | HTMLSelectElement>(
-      'input[type="date"], input[type="time"], select.pause-day',
+      'input[type="date"], input.clock-text, input#entry-duration:not(:disabled), select.pause-day',
     );
     return !liveEntryError && !livePauseError && [...timeControls].every((field) => field.checkValidity());
   }
@@ -641,6 +671,9 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   // the surrounding entry crosses a calendar boundary (or a prior date is invalid).
   const pauseList = form.querySelector<HTMLElement>('#pause-list')!;
   const pauseScope = form.querySelector<HTMLElement>('#pause-scope')!;
+  const grossTotal = form.querySelector<HTMLElement>('#period-gross')!;
+  const breakTotal = form.querySelector<HTMLElement>('#period-break-total')!;
+  const netTotal = form.querySelector<HTMLElement>('#period-net')!;
   const addPauseButton = form.querySelector<HTMLButtonElement>('[data-action="add-pause"]')!;
   const finishButton = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
   const startDateField = form.querySelector<HTMLInputElement>('#entry-start-date')!;
@@ -648,6 +681,97 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   const startTimeField = form.querySelector<HTMLInputElement>('#entry-start-time')!;
   const endTimeField = form.querySelector<HTMLInputElement>('#entry-end-time')!;
   const entryRangeFeedback = form.querySelector<HTMLElement>('#entry-range-error')!;
+  const endDayChoice = form.querySelector<HTMLSelectElement>('#entry-end-day')!;
+  const otherDateWrap = form.querySelector<HTMLElement>('#period-other-date')!;
+  const endingWrap = form.querySelector<HTMLElement>('#period-ending')!;
+  const durationInput = form.querySelector<HTMLInputElement>('#entry-duration')!;
+  const durationWrap = form.querySelector<HTMLElement>('#period-duration-wrap')!;
+  const durationHint = form.querySelector<HTMLElement>('#period-duration-hint')!;
+  const endWrap = form.querySelector<HTMLElement>('#period-end-wrap')!;
+  let durationMode = false;
+  const synchronizeDateChoice = () => {
+    if (durationMode) return;
+    if (endDayChoice.value === 'same') endDateField.value = startDateField.value;
+    if (endDayChoice.value === 'next') endDateField.value = addCalendarDay(startDateField.value);
+    otherDateWrap.hidden = endDayChoice.value !== 'other';
+  };
+  function syncInputMode(): void {
+    durationMode = form.querySelector<HTMLInputElement>('input[name="period-mode"]:checked')?.value === 'duration';
+    endWrap.hidden = durationMode;
+    endingWrap.hidden = durationMode;
+    durationWrap.hidden = !durationMode;
+    durationHint.hidden = !durationMode;
+    durationInput.disabled = !durationMode;
+    if (!durationMode) synchronizeDateChoice();
+    syncPauseEditor();
+  }
+  // Clock text is normalized only after the user commits a field, never during typing.
+  function bindClockInputs(root: ParentNode): void {
+  for (const control of root.querySelectorAll<HTMLInputElement>('.clock-text')) {
+    control.addEventListener('focus', () => { if (window.matchMedia('(pointer: fine)').matches) control.select(); });
+    control.addEventListener('blur', () => {
+      const normalized = normalizeClock(control.value);
+      if (normalized) control.value = normalized;
+      syncPauseEditor();
+    });
+    control.addEventListener('keydown', (event) => {
+      if (event.isComposing || event.ctrlKey || event.altKey || event.metaKey) return;
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      const updated = shiftClock(control.value, (event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 15 : 5));
+      if (updated !== null) {
+        event.preventDefault();
+        control.value = updated;
+        control.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+  }
+  }
+  bindClockInputs(form);
+  form.addEventListener('click', (event) => {
+    const pickerButton = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-action="pick-time"]');
+    if (!pickerButton) return;
+    const group = pickerButton.closest<HTMLElement>('.clock-control')!;
+    const text = group.querySelector<HTMLInputElement>('.clock-text')!;
+    const native = group.querySelector<HTMLInputElement>('.clock-native')!;
+    native.value = normalizeClock(text.value) ?? '';
+    native.disabled = false;
+    native.addEventListener('blur', () => { if (!native.classList.contains('clock-native-fallback')) native.disabled = true; }, { once: true });
+    try {
+      native.showPicker();
+    } catch {
+      // Older browsers do not support showPicker(); expose the native input.
+      native.classList.add('clock-native-fallback');
+      native.focus();
+    }
+  });
+  form.addEventListener('change', (event) => {
+    const picker = event.target as HTMLInputElement;
+    if (!picker.classList.contains('clock-native')) return;
+    const field = picker.closest<HTMLElement>('.clock-control')!.querySelector<HTMLInputElement>('.clock-text')!;
+    field.value = picker.value;
+    if (!picker.classList.contains('clock-native-fallback')) picker.disabled = true;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  endDayChoice.addEventListener('change', () => { synchronizeDateChoice(); syncPauseEditor(); });
+  startDateField.addEventListener('change', () => { synchronizeDateChoice(); syncPauseEditor(); });
+  startDateField.addEventListener('input', () => { synchronizeDateChoice(); syncPauseEditor(); });
+  for (const radio of form.querySelectorAll<HTMLInputElement>('input[name="period-mode"]')) {
+    radio.addEventListener('change', () => {
+      if (radio.checked && radio.value === 'duration') {
+        try {
+          const prior = entryBounds();
+          durationInput.value = String(Math.max(0, durationMinutes(prior.start, prior.end)));
+        } catch { /* Keep existing duration if the current range is being edited. */ }
+      }
+      if (radio.checked && radio.value === 'end') {
+        // Preserve the duration-derived end date when switching back to From/To.
+        try { entryBounds(); } catch { /* Keep current edit and validation. */ }
+        endDayChoice.value = dayChoice(startDateField.value, endDateField.value);
+      }
+      syncInputMode();
+    });
+  }
+  durationInput.addEventListener('input', syncPauseEditor);
   const pauseRows = () => [...pauseList.querySelectorAll<HTMLElement>('[data-pause-row]')];
   function entryTimeConstraints(): void {
     // Browser pickers should not offer an inverted range on the same day.
@@ -655,8 +779,8 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     startDateField.max = endDateField.value || '';
     endDateField.min = startDateField.value || '';
     const sameDay = Boolean(startDateField.value && startDateField.value === endDateField.value);
-    startTimeField.max = sameDay ? endTimeField.value : '';
-    endTimeField.min = sameDay ? startTimeField.value : '';
+    startTimeField.closest('.clock-control')!.querySelector<HTMLInputElement>('.clock-native')!.max = sameDay ? endTimeField.value : '';
+    endTimeField.closest('.clock-control')!.querySelector<HTMLInputElement>('.clock-native')!.min = sameDay ? startTimeField.value : '';
   }
   function renderEntryRangeFeedback(message: string): void {
     liveEntryError = message;
@@ -665,14 +789,24 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     // Time pair is treated as one logical input; don't attribute a date error to text fields alone.
     const invalid = Boolean(message);
     for (const field of [startDateField, endDateField, startTimeField, endTimeField]) field.setAttribute('aria-invalid', String(invalid));
-    const dateEditor = form.querySelector<HTMLElement>('.date-editor')!;
-    dateEditor.classList.toggle('field-invalid', invalid && startDateField.value > endDateField.value);
+    form.querySelector<HTMLElement>('.period-editor')?.classList.toggle('field-invalid', invalid);
     updateEditorFooter();
     updateFinishState();
   }
   function entryBounds(): { start: number; end: number } {
     const start = fromDateAndClock(form.querySelector<HTMLInputElement>('#entry-start-date')!.value, form.querySelector<HTMLInputElement>('#entry-start-time')!.value, editingSession.startedAt);
-    const end = fromDateAndClock(form.querySelector<HTMLInputElement>('#entry-end-date')!.value, form.querySelector<HTMLInputElement>('#entry-end-time')!.value, editingSession.stoppedAt!);
+    let end: number;
+    if (durationMode) {
+      const minutes = durationValue(durationInput.value);
+      if (minutes === null) throw new Error('Bitte eine gültige Dauer in Minuten eingeben.');
+      end = start + minutes * 60_000;
+      if (!Number.isFinite(end)) throw new Error('Ungültige Dauer.');
+      const localEnd = toLocalInput(end);
+      endDateField.value = localEnd.slice(0, 10);
+      endTimeField.value = localEnd.slice(11, 16);
+    } else {
+      end = fromDateAndClock(endDateField.value, endTimeField.value, editingSession.stoppedAt!);
+    }
     const error = validateEntryOrder(start, end);
     if (error) throw new Error(error);
     return { start, end };
@@ -732,18 +866,21 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     }
     // Impossible bounds (while the user edits an invalid pair) must not become
     // a native overnight time range; the inline error handles the intermediate state.
-    point.time.min = min && max && min > max ? '' : min;
-    point.time.max = min && max && min > max ? '' : max;
+    const native = point.time.closest('.clock-control')!.querySelector<HTMLInputElement>('.clock-native')!;
+    native.min = min && max && min > max ? '' : min;
+    native.max = min && max && min > max ? '' : max;
   }
   function syncPauseEditor(): boolean {
-    entryTimeConstraints();
     const rows = pauseRows();
-    form.querySelector<HTMLElement>('#pause-summary')!.textContent = tr(`Pausen bearbeiten (${rows.length})`);
+    breakTotal.textContent = rows.length ? '–' : formatDuration(0);
+    grossTotal.textContent = '–';
+    netTotal.textContent = '–';
     let bounds: { start: number; end: number };
     try {
       bounds = entryBounds();
     } catch (error) {
       renderEntryRangeFeedback(error instanceof Error ? error.message : 'Ungültiges Datum oder Uhrzeit.');
+      pauseScope.hidden = false;
       pauseScope.textContent = tr('Bitte zuerst den Zeitraum korrigieren.');
       addPauseButton.disabled = true;
       // Existing break errors are not erased; changing the range alone must not fix them silently.
@@ -755,8 +892,11 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     }
     renderEntryRangeFeedback('');
     const { start, end } = bounds;
+    entryTimeConstraints();
     const format = (ts: number) => new Intl.DateTimeFormat(intlLocale(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(ts);
+    pauseScope.hidden = localPauseDate(start) === localPauseDate(end);
     pauseScope.textContent = `${tr('Zeitraum')}: ${format(start)} – ${format(end)}`;
+    grossTotal.textContent = formatDuration(end - start);
     const values: PausePeriod[] = [];
     const parsingErrors: (string | null)[] = [];
     for (const row of rows) {
@@ -775,14 +915,22 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
       error.textContent = errors[i] ? tr(errors[i]!) : '';
       error.hidden = !errors[i];
       row.classList.toggle('pause-invalid', Boolean(errors[i]));
-      for (const time of row.querySelectorAll<HTMLInputElement>('input[type="time"]')) time.setAttribute('aria-invalid', String(Boolean(errors[i])));
+      for (const time of row.querySelectorAll<HTMLInputElement>('.clock-text')) time.setAttribute('aria-invalid', String(Boolean(errors[i])));
     });
     livePauseError = errors.some(Boolean);
+    if (!livePauseError) {
+      const pausesMs = values.reduce((sum, p) => sum + p.end - p.start, 0);
+      breakTotal.textContent = formatDuration(pausesMs);
+      netTotal.textContent = formatDuration(Math.max(0, end - start - pausesMs));
+    } else {
+      breakTotal.textContent = '–';
+      netTotal.textContent = '–';
+    }
     // A new break needs at least one full minute of uncovered time; a zero-duration
     // entry or a work interval fully covered by breaks must never offer this action.
     addPauseButton.disabled = livePauseError || suggestPause(start, end, values) === null;
     updateFinishState();
-    form.querySelector<HTMLElement>('#pause-summary')!.classList.toggle('summary-invalid', livePauseError);
+    form.querySelector<HTMLElement>('.period-pauses')!.classList.toggle('summary-invalid', livePauseError);
     updateEditorFooter();
     return !livePauseError;
   }
@@ -803,11 +951,11 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     // Updating only after change for day controls avoids destroying the native dropdown mid-selection.
     if (!target.classList.contains('pause-day')) syncPauseEditor();
   });
-  for (const id of ['entry-start-date', 'entry-end-date', 'entry-start-time', 'entry-end-time']) {
+  for (const id of ['entry-end-date', 'entry-start-time', 'entry-end-time']) {
     form.querySelector(`#${id}`)!.addEventListener('change', syncPauseEditor);
     form.querySelector(`#${id}`)!.addEventListener('input', syncPauseEditor);
   }
-  syncPauseEditor();
+  syncInputMode();
   refreshPicker();
   updateDocumentationFeedback();
   form.addEventListener('click', (event) => {
@@ -819,7 +967,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
         const proposal = suggestPause(start, end, existing);
         if (!proposal) return toast('Kein Platz für eine weitere Pause.');
         pauseList.insertAdjacentHTML('beforeend', pauseMarkup(proposal.start, proposal.end));
-        form.querySelector<HTMLDetailsElement>('details.pause-editor')!.open = true;
+        bindClockInputs(pauseList.lastElementChild!);
         syncPauseEditor();
       } catch (error) { showError(error); }
     }
@@ -889,8 +1037,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     };
   }
   function focusInvalidTime(): void {
-    const invalidTime = form.querySelector<HTMLInputElement>('input[type="time"]:invalid, input[type="date"]:invalid');
-    if (livePauseError) form.querySelector<HTMLDetailsElement>('details.pause-editor')!.open = true;
+    const invalidTime = form.querySelector<HTMLInputElement>('input.clock-text:invalid, input[type="date"]:invalid, #entry-duration:invalid');
     focusDocumentationField(invalidTime ?? (livePauseError
       ? pauseRows().find(row => row.classList.contains('pause-invalid'))?.querySelector<HTMLInputElement>('.pause-start') ?? startTimeField
       : startTimeField));
@@ -898,6 +1045,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
   async function deferEditor(): Promise<void> {
     if (busy || isManual || editingSession.status !== 'pending') return;
     // "Später" must accept missing documentation, but not invalid timestamps or pauses.
+    for (const input of form.querySelectorAll<HTMLInputElement>('.clock-text')) { const normalized = normalizeClock(input.value); if (normalized) input.value = normalized; }
     if (!syncPauseEditor() || !timesValid()) {
       focusInvalidTime();
       return;
@@ -925,6 +1073,7 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
       focusDocumentationField(missing[0] === 'category' ? categoryField : descriptionField);
       return;
     }
+    for (const input of form.querySelectorAll<HTMLInputElement>('.clock-text')) { const normalized = normalizeClock(input.value); if (normalized) input.value = normalized; }
     if (!syncPauseEditor()) {
       focusInvalidTime();
       return;
@@ -947,7 +1096,11 @@ function editSession(id: string, stoppedFrom?: StoppedFrom, manualDraft?: Sessio
     if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.isComposing) return;
     event.preventDefault();
     if (busy) return;
-    // Do not defer an invalid interval. First expose the existing time error.
+    // Commit shorthand clock values before checking the keyboard action.
+    for (const input of form.querySelectorAll<HTMLInputElement>('.clock-text')) {
+      const formatted = normalizeClock(input.value);
+      if (formatted) input.value = formatted;
+    }
     syncPauseEditor();
     const action = currentShortcutAction();
     if (action === 'invalid-time') {
@@ -993,6 +1146,7 @@ function showKeyboardHelp(): void {
     ['T', 'Timer starten'], ['P', 'Timer pausieren / fortsetzen'], ['S', 'Timer stoppen'],
     ['N', 'Neuen Eintrag erstellen'], ['?', 'Tastaturhilfe anzeigen'],
     ['Tab', 'Nächstes Feld'], ['↑ / ↓', 'Kategorie auswählen'],
+    ['↑ / ↓ (Zeit)', 'Zeit um fünf Minuten ändern'], ['Shift + ↑ / ↓', 'Zeit um fünfzehn Minuten ändern'],
     ['Enter', 'Kategorie übernehmen'], ['Ctrl / ⌘ + Enter', 'Abschließen bei vollständigen Angaben, sonst Später (offene Einträge)'],
     ['Esc', 'Dialog schließen'],
   ];

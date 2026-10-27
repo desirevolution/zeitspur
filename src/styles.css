@@ -536,3 +536,62 @@ kbd { display: inline-block; padding: 2px 6px; border: 1px solid var(--line); bo
 
 /* A visually disabled shortcut must not reappear through kbd display rules. */
 [data-shortcut-later][hidden], [data-shortcut-finish][hidden] { display: none !important; }
+
+/* Unified work-range editor: clear date, short clock inputs and directly visible breaks. */
+#editor-dialog { width: min(calc(100vw - 34px), 620px); }
+.period-editor, .period-pauses { padding: 15px 16px; border: 1px solid var(--line); border-radius: 13px; margin-bottom: 18px; }
+.period-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 9px; margin-bottom: 14px; }
+.period-heading h3 { font-size: 15px; line-height: 1.3; font-weight: 700; margin: 0; }
+.period-subtitle, .period-hint { color: var(--muted); font-size: 12px; }
+.period-hint { margin: 8px 0 12px; line-height: 1.5; }
+.period-date { margin-bottom: 15px; }
+.period-date input { max-width: 100%; }
+.period-mode { display: flex; align-items: center; gap: 4px; margin: 0 0 15px; padding: 4px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-2); }
+.period-mode legend { float: left; width: 0; height: 0; padding: 0; overflow: hidden; }
+.period-mode label { display: grid; flex: 1; place-items: center; position: relative; min-height: 42px; cursor: pointer; border-radius: 8px; color: var(--muted); font-size: 13px; font-weight: 600; text-align: center; }
+.period-mode label:has(input:checked) { background: var(--surface); color: var(--text); box-shadow: 0 1px 4px rgb(0 0 0 / 15%); }
+.period-mode input { position: absolute; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.period-mode label:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
+.period-clocks { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.period-clocks .field { margin-bottom: 13px; }
+.clock-control { position: relative; display: flex; width: 100%; min-width: 0; }
+.clock-control input.clock-text { width: 100%; min-width: 0; min-height: 49px; padding: 10px 47px 10px 13px; font-size: 19px; font-weight: 650; letter-spacing: .02em; font-variant-numeric: tabular-nums; background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; color: var(--text); }
+.clock-control .clock-picker-button { position: absolute; right: 3px; top: 3px; display: grid; place-items: center; width: 42px; height: calc(100% - 6px); border: 0; border-radius: 7px; color: var(--muted); background: transparent; }
+.clock-control .clock-picker-button:hover { color: var(--text); background: var(--surface-3); }
+.clock-control .clock-native { position: absolute; bottom: 0; right: 0; opacity: 0; pointer-events: none; width: 1px; height: 1px; padding: 0; border: 0; }
+.clock-control .clock-native.clock-native-fallback { position: static; display: block; pointer-events: auto; opacity: 1; width: 100%; height: 44px; margin-top: 5px; padding: 6px; background: var(--surface); color: var(--text); border: 1px solid var(--line); border-radius: 8px; }
+.clock-control:has(.clock-native-fallback) { display: grid; }
+.period-duration input { font-variant-numeric: tabular-nums; font-size: 19px !important; font-weight: 650 !important; }
+.period-ending { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding-top: 2px; font-size: 13px; color: var(--muted); }
+.period-ending select { flex: 1 1 190px; min-width: 0; min-height: 44px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: var(--text); }
+.period-other-date { flex: 1 0 100%; margin: 3px 0 0; }
+.period-other-date input { min-height: 44px; }
+.period-editor .entry-range-error { margin: 12px 0 0; }
+.period-pauses .period-heading .button { min-height: 40px; padding: 8px 12px; }
+.period-pauses .pause-scope { margin: 0 0 11px; }
+.period-pauses .pause-row { padding: 12px; margin-bottom: 9px; }
+.period-pauses .pause-point .clock-text { background: var(--surface); font-size: 16px; }
+.period-pauses .pause-point label { margin-bottom: 6px; }
+.period-pauses .pause-point .pause-day-wrap { order: 2; }
+.period-pauses .pause-point .pause-day { margin: 7px 0 0; }
+.period-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 14px; padding: 13px; border-radius: 10px; background: var(--surface-2); }
+.period-totals > div { display: grid; gap: 5px; min-width: 0; }
+.period-totals span { font-size: 11px; color: var(--muted); }
+.period-totals strong { font-size: 14px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.period-totals > div:last-child strong { color: var(--accent); }
+.period-pauses.summary-invalid { border-color: var(--danger); }
+@media (max-width: 650px) {
+  .period-editor, .period-pauses { padding: 13px; }
+  .period-clocks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .period-clocks .field { margin-bottom: 11px; }
+  #editor-dialog .clock-text { font-size: 17px; }
+  .period-totals { gap: 6px; padding: 11px 9px; }
+  .period-totals strong { font-size: 13px; }
+  .period-pauses .period-heading .button { font-size: 12px; }
+}
+@media (max-width: 360px) {
+  .period-clocks { gap: 7px; }
+  .clock-control input.clock-text { padding-left: 9px; padding-right: 41px; }
+  .clock-control .clock-picker-button { width: 38px; }
+  .period-totals strong { font-size: 12px; }
+}

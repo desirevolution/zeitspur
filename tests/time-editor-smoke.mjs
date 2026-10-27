@@ -20,11 +20,17 @@ assert.deepEqual(validatePausePeriods(base, next, [p1, {start:p1.start+60_000,en
 assert.equal(pauseDayOptions(base, next).length, 2, 'Overnight editor must show both days');
 assert.equal(parsePausePoint({ date: '2026-10-26', time: '01:00', original: -1 }), new Date(2026, 9, 26, 1, 0).getTime());
 assert.ok(suggestPause(base, next, [p1]), 'Can suggest a break in free time');
+const noon = new Date(2026, 9, 27, 9, 0).getTime();
+const suggested = suggestPause(noon, noon + 8 * 3600000, []);
+assert.equal(new Date(suggested.start).getMinutes() % 15, 0, 'Default pause should start at a clear quarter-hour');
 const fs = await import('node:fs');
 const script = fs.readFileSync(new URL('../dist/assets/main.js', import.meta.url), 'utf8');
 assert.match(script, /id="entry-range-error"/, 'Work range message must be inside dialog');
 assert.match(script, /finishButton.disabled/, 'Completion must be blocked when invalid');
 assert.match(script, /entryTimeConstraints\(\)/, 'Time/date pickers need dynamic boundaries');
-assert.match(script, /class="pause-start" type="time"/, 'Breaks use time-only fields by default');
+assert.match(script, /'pause-start'/, 'Breaks use the shared clock input');
+assert.match(script, /period-mode/, 'Work interval supports From-To and From-Duration');
+assert.match(script, /period-totals/, 'Live gross, breaks and net totals must be displayed');
+assert.match(script, /dayChoice/, 'Work range must support same, next and custom end dates');
 assert.match(script, /livePauseError = errors.some/, 'Break editing must block invalid save');
 console.log('PASS: work/break order, local-time overnight, picker bounds, inline validation and disabled completion');

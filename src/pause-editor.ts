@@ -61,7 +61,13 @@ export function suggestPause(start: number, end: number, existing: PausePeriod[]
   const largest = aligned[0];
   if (!largest) return null;
   const duration = Math.min(15 * minute, largest.end - largest.start);
-  const from = Math.floor(((largest.start + largest.end - duration) / 2) / minute) * minute;
+  // On generous gaps offer a tidy quarter-hour instead of times such as 12:52–13:07.
+  const central = (largest.start + largest.end - duration) / 2;
+  const quarter = 15 * minute;
+  const rounded = Math.floor(central / quarter) * quarter;
+  const from = rounded >= largest.start && rounded + duration <= largest.end
+    ? rounded
+    : Math.floor(central / minute) * minute;
   return { start: from, end: from + duration };
 }
 
