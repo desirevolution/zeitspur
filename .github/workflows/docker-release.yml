@@ -3,7 +3,16 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional existing version tag (e.g. v0.33.0) to rebuild and upload release ZIPs'
+        required: false
+        type: string
+env:
+  RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
 permissions:
   contents: read
 jobs:
@@ -11,13 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Verify release tag matches package version
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         run: node -e 'if ("v" + require("./package.json").version !== process.env.RELEASE_TAG) process.exit(1)'
       - name: Install dependencies
         run: npm install --no-audit --no-fund
@@ -25,6 +34,8 @@ jobs:
         run: npm run test:ci
 
   publish-image:
+    # Manual release-asset repair must not rebuild or retag the Docker image.
+    if: inputs.release_tag == ''
     needs: test
     runs-on: ubuntu-latest
     permissions:
@@ -63,7 +74,10 @@ jobs:
           cache-to: type=gha,mode=max
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    concurrency:
+      group: zeitspur-release-${{ inputs.release_tag || github.ref_name }}
+      cancel-in-progress: false
     # Static and portable release archives do not depend on multi-arch Docker publishing.
     needs: test
     runs-on: ubuntu-latest
@@ -71,12 +85,12 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - name: Verify version tag
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
         run: node -e 'if ("v" + require("./package.json").version !== process.env.RELEASE_TAG) process.exit(1)'
       - run: npm install --no-audit --no-fund
       - run: npm run build
@@ -85,12 +99,30 @@ jobs:
       - name: Archive standalone static files
         run: |
           cd dist
-          zip -qr "${GITHUB_WORKSPACE}/zeitspur-${GITHUB_REF_NAME}-static.zip" .
+          zip -qr "${GITHUB_WORKSPACE}/zeitspur-${RELEASE_TAG}-static.zip" .
       - name: Archive portable HTML and instructions
         run: |
           cd portable
-          zip -q "${GITHUB_WORKSPACE}/zeitspur-${GITHUB_REF_NAME}-portable.zip" zeitspur.html README.txt
-      - name: Publish GitHub release
+          zip -q "${GITHUB_WORKSPACE}/zeitspur-${RELEASE_TAG}-portable.zip" zeitspur.html README.txt
+      - name: Publish or attach GitHub release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" "zeitspur-${GITHUB_REF_NAME}-static.zip" "zeitspur-${GITHUB_REF_NAME}-portable.zip" --verify-tag --generate-notes
+        # Inline intentionally: manual repair checks out the *old release tag*,
+        # whose tree might not contain any newly added maintenance script.
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          static="zeitspur-${RELEASE_TAG}-static.zip"
+          portable="zeitspur-${RELEASE_TAG}-portable.zip"
+          test -s "$static"
+          test -s "$portable"
+          if gh release view "$RELEASE_TAG" --json tagName >/dev/null 2>&1; then
+            echo "Release exists: uploading/replacing assets"
+            gh release upload "$RELEASE_TAG" "$static" "$portable" --clobber
+          else
+            echo "Release missing: creating it with assets"
+            gh release create "$RELEASE_TAG" "$static" "$portable" --verify-tag --generate-notes
+          fi
