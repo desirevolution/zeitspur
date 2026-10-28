@@ -2,7 +2,7 @@
 
 **Offline-first time tracking, without user accounts or a backend.** Zeitspur is a private, installable PWA; sessions are stored in **IndexedDB in each browser**. No data is transferred to the web server. Export CSV or create JSON backups from the UI.
 
-[GitHub repository](https://github.com/desirevolution/zeitspur) · [GitHub Pages](https://desirevolution.github.io/zeitspur/)
+[Zeitspur](https://desirevolution.github.io/zeitspur/)
 
 ## Quick start (end users)
 
