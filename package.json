@@ -18,7 +18,7 @@
     "test:portable": "node tests/portable-smoke.mjs"
   },
   "devDependencies": {
-    "typescript": "^5.9.3",
+    "typescript": "^7.0.2",
     "vite": "^7.1.0"
   },
   "description": "Private offline-first time tracker PWA"
